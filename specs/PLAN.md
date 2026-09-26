@@ -1,10 +1,13 @@
 # Karaoke MP3 Downloader — Plan
 
-**Status:** v1.0.0 released; installer verified on Vinicius's machine (first
-install with a local zip, update path against the real Release); the modified
-extension downloaded a real karaoke song in his Chrome; no developer-mode pop-up
-on Chrome 153.0.8010.53. Remaining: clean the test install off Vinicius's machine
-(Phase 4), then Phase 5 (Dad's laptop).
+**Status:** Phase 4 done — v1.0.0 released, installer verified on Vinicius's
+machine (first install with a local zip, update path against the real Release),
+the extension downloaded a real karaoke song in his Chrome, no developer-mode
+pop-up on Chrome 153. The test install stays on his machine for maintenance
+(`%LOCALAPPDATA%\KaraokeMP3`, the extension in Chrome, the "Atualizar Baixador"
+shortcut); the test songs folders and MP3 were deleted. **Next: Phase 5 (Dad's
+laptop, Vinicius).** Open follow-ups: §5 follow-up scenarios (double click, emoji,
+offline) are not automated yet.
 **Updated:** 2026-09-26.
 
 ## 1. Goal
@@ -258,16 +261,21 @@ Message contract between the pieces (new or changed):
 - [x] `-Zip <path>` parameter to test the installer with a local zip before a Implemented; a test zip is built with `Compress-Archive extension\* -DestinationPath karaoke-mp3-downloader.zip`.
       Release exists.
 
-### Phase 4 — Automated tests (agent, see §5)
+### Phase 4 — Automated tests and release (agent, see §5) — done 2026-09-26
 
 - [x] Main scenario green on the modified extension, in both languages, with `tests/karaoke-mp3.spec.mjs`, pt-BR and en-US, 2026-09-25.
       screenshot/video in `test-results/`.
-- [ ] Follow-up scenarios from §5 (double click, emoji, offline).
+- [ ] Follow-up scenarios from §5 (double click, emoji, offline). Not automated yet; the double click is covered by the disabled-button check in the main spec, and the sanitiser by the unit tests.
 - [x] `node --test` green. 11 unit tests.
 - [x] Tag `v1.0.0` → Release published (check the workflow ran) → test
       `install.ps1` in a clean Windows profile on Vinicius's machine. Tag pushed 2026-09-25; the workflow run succeeded and the Release carries `karaoke-mp3-downloader.zip` (10.3 MB). Installer tested with a local zip (first-install path) on Vinicius's machine: folders, shortcuts, clipboard and chrome://extensions all right. Still to do: the update path against the real Release (Chrome closed), then clean the test install up. Update path done 2026-09-26 against the real Release: zip fetched from `releases/latest`, the close-Chrome prompt worked, folder swapped, `version.txt` 1.0.0, 18 files identical to the tag (modulo line endings).
 
 ### Phase 5 — Dad's laptop (Vinicius, 10 min)
+
+Everything he needs is in [README.pt-BR.md](../README.pt-BR.md). What to expect
+from the installer, seen on Vinicius's machine: it downloads the zip, creates the
+folders and shortcuts, copies the extension path and opens `chrome://extensions`;
+the only manual step is Developer mode → Load unpacked → Ctrl+V → Enter.
 
 - [x] Windows 11 + Google Chrome + uBlock Origin Lite installed (2026-09-25).
 - [ ] uBO Lite in **"Complete"** mode on youtube.com: with YouTube open, click
