@@ -1,10 +1,11 @@
 # Karaoke MP3 Downloader — Plan
 
-**Status:** v1.0.0 released (Phase 4 in progress). Remaining in Phase 4: the
-installer's update path against the real Release (needs every Chrome window
-closed), the developer-mode pop-up check on Chrome restart (§6), and cleaning the
-test install off Vinicius's machine. Then Phase 5 (Dad's laptop).
-**Updated:** 2026-09-25.
+**Status:** v1.0.0 released; installer verified on Vinicius's machine (first
+install with a local zip, update path against the real Release); the modified
+extension downloaded a real karaoke song in his Chrome; no developer-mode pop-up
+on Chrome 153.0.8010.53. Remaining: clean the test install off Vinicius's machine
+(Phase 4), then Phase 5 (Dad's laptop).
+**Updated:** 2026-09-26.
 
 ## 1. Goal
 
@@ -125,12 +126,12 @@ was already broken".
       checked in Phase 2, so the toast's `data-filename` is the source); file and
       duration through technique B. The baseline spec goes away when Phase 4's
       `tests/karaoke-mp3.spec.mjs` lands (the button and menu change in Phase 2).
-- [ ] **Official Chrome (Vinicius, 5 min — ask first, §10):** load `extension/`
+- [x] **Official Chrome (Vinicius, 5 min — ask first, §10):** load `extension/`
       unpacked, download one MP3, close and reopen Chrome. Answers: does the
       "Disable developer mode extensions" pop-up still exist in current Chrome
       (decides §6)? Does upstream work outside Playwright? Vinicius chose to do
-      this later, in parallel with Phase 2. 2026-09-25: the modified extension (installed by install.ps1) was loaded in Vinicius's Chrome and downloaded a real karaoke song with correct tags — it works outside Playwright. First finding: inside the control bar the button was nearly invisible, hence the top-right pill. The pop-up question is still open (needs a Chrome restart).
-- [ ] Record what was seen in §6 and §7.
+      this later, in parallel with Phase 2. 2026-09-25: the modified extension (installed by install.ps1) was loaded in Vinicius's Chrome and downloaded a real karaoke song with correct tags — it works outside Playwright. First finding: inside the control bar the button was nearly invisible, hence the top-right pill. The pop-up question is still open (needs a Chrome restart). 2026-09-26: after install.ps1's update path swapped the folder with Chrome closed, Chrome 153.0.8010.53 reopened with the unpacked extension loaded and **no** "Disable developer mode extensions" pop-up (Vinicius's report). §6 is history.
+- [x] Record what was seen in §6 and §7.
 
 ### Phase 2 — One button (agent, ~1 h)
 
@@ -264,7 +265,7 @@ Message contract between the pieces (new or changed):
 - [ ] Follow-up scenarios from §5 (double click, emoji, offline).
 - [x] `node --test` green. 11 unit tests.
 - [x] Tag `v1.0.0` → Release published (check the workflow ran) → test
-      `install.ps1` in a clean Windows profile on Vinicius's machine. Tag pushed 2026-09-25; the workflow run succeeded and the Release carries `karaoke-mp3-downloader.zip` (10.3 MB). Installer tested with a local zip (first-install path) on Vinicius's machine: folders, shortcuts, clipboard and chrome://extensions all right. Still to do: the update path against the real Release (Chrome closed), then clean the test install up.
+      `install.ps1` in a clean Windows profile on Vinicius's machine. Tag pushed 2026-09-25; the workflow run succeeded and the Release carries `karaoke-mp3-downloader.zip` (10.3 MB). Installer tested with a local zip (first-install path) on Vinicius's machine: folders, shortcuts, clipboard and chrome://extensions all right. Still to do: the update path against the real Release (Chrome closed), then clean the test install up. Update path done 2026-09-26 against the real Release: zip fetched from `releases/latest`, the close-Chrome prompt worked, folder swapped, `version.txt` 1.0.0, 18 files identical to the tag (modulo line endings).
 
 ### Phase 5 — Dad's laptop (Vinicius, 10 min)
 
@@ -346,9 +347,9 @@ Windows dialog.
 
 ## 6. "Disable developer mode extensions" pop-up
 
-**Possibly obsolete:** there are reports that current Chrome no longer shows this
-warning. Phase 0 (Vinicius's official Chrome) answers it in 5 min; if it does not
-appear, this section becomes history.
+**Resolved 2026-09-26:** Chrome 153.0.8010.53 on Vinicius's machine shows no such
+pop-up after a restart with the unpacked extension loaded. Kept below for history,
+in case an older Chrome on Dad's laptop still shows it (Phase 5 will tell).
 
 If it still exists: it shows on every browser start, for every unpacked
 extension. No flag, setting or command line turns it off (`--load-extension`
