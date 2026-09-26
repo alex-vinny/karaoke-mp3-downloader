@@ -1,7 +1,12 @@
 # Dependencies / build artifacts
 node_modules/
-package.json
-package-lock.json
+*.zip
+
+# Tests (local only)
+test-results/
+playwright-report/
+tests/.tmp/
+tests/vendor/
 
 # Editor / IDE
 .claude/
