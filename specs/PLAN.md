@@ -1,11 +1,12 @@
 # Karaoke Downloader — Plan
 
-**Status:** Phase 6 implemented and tested — the button saves the **video** (720p
-MP4, H.264 + AAC, stream copy) instead of an MP3, because some of Dad's songs are in
-English and need the lyrics on screen. Both Playwright scenarios green in pt-BR and
-en-US on 2026-09-26. **Next: tag `v1.1.0` → Release → Dad's laptop: "Atualizar
-Baixador" (Vinicius).** Open follow-ups: §5 follow-up scenarios (double click, emoji,
-offline) are not automated yet.
+**Status:** v1.1.0 released 2026-09-26 — the button saves the **video** (720p MP4,
+H.264 + AAC, stream copy) instead of an MP3, because some of Dad's songs are in
+English and need the lyrics on screen (Phase 6). Both Playwright scenarios green in
+pt-BR and en-US. **Next: Dad's laptop — "Atualizar Baixador", close Chrome when
+asked, reopen (Vinicius).** Vinicius's own test install (v1.0.0) can be updated the
+same way. Open follow-ups: §5 follow-up scenarios (double click, emoji, offline)
+are not automated yet.
 **Updated:** 2026-09-26.
 
 ## 1. Goal
@@ -332,8 +333,9 @@ user-visible names change (see §2 "Name").
       `updateAvailable`; installer strings (and it removes the stale "Update Karaoke
       MP3.lnk" on English desktops); READMEs; AGENTS.md; package.json description;
       screenshots; this plan. Manifest 1.1.0.
-- [ ] Tag `v1.1.0` → Release → check the workflow ran and the zip is there; update
-      the repo About.
+- [x] Tag `v1.1.0` → Release → check the workflow ran and the zip is there; update
+      the repo About. Done 2026-09-26: workflow run succeeded, the Release carries
+      `karaoke-mp3-downloader.zip` (10.3 MB), About updated.
 - [ ] Dad's laptop (Vinicius, 2 min): double-click "Atualizar Baixador" → close Chrome
       when it asks → open Chrome again → try an English song. The daily check also
       announces the update on YouTube within a day.
