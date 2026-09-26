@@ -1,15 +1,22 @@
 # Karaoke Downloader — Plan
 
-**Status:** v1.2.0 released 2026-09-26 (Phase 7) after Vinicius's second visit: v1.1.0
-works on Dad's laptop, but the scrubber running during the capture alarmed him, and
-"Atualizar Baixador" ended in a Windows box saying powershell.exe cannot be found.
-Now a **curtain** (the frozen frame, dimmed, with the progress in big type) covers the
-player while the capture hops through the video, and the update shortcut runs a
-**local copy of the installer** through `update.cmd`, which fetches the latest
-installer first. **Next: on Dad's laptop, paste the install line into PowerShell once
-(the old shortcut there is the broken one; the new one replaces it) — Vinicius.**
-Open follow-ups: the cause of the powershell.exe box is unknown (the same .lnk works
-here); §5 follow-up scenarios (double click, emoji, offline) are not automated.
+**Status:** v1.3.0 built 2026-09-26 (Phase 8): Vinicius's brother wants the same
+button for **videos of one to two and a half hours**, and v1.2.0 died at the end of
+such a video ("a lot of errors", no file) — the whole video was held in memory several
+times over and ffmpeg's 2 GB heap gave out. Now the captured pieces **stream** through
+to the offscreen page while the capture runs, and a small **muxer of our own**
+(`mp4mux.js`) writes an ordinary MP4 straight out of disk-backed blobs; ffmpeg only
+serves the fallbacks. A 3-hour run surfaced two more things long videos do — the
+player switches between two encodings of the same quality, aborting the append in
+progress each time — and the muxer handles both (ffmpeg's copy did not). The curtain
+covers the "preparing" stage too and the toast only reports the result (the corner
+bar repeated the curtain's percentage). Verified on a 1-hour and on a 2 h 56 min
+video (2.3 GB), Phase 8 has the numbers. **Next: tag
+`v1.3.0` → Release (Vinicius's go), then the update on Dad's laptop (paste the install
+line once — Phase 7) and the brother's first install.** Open follow-ups: the cause of
+the powershell.exe box is unknown (the same .lnk works here); Windows Media Player /
+VLC playback of the muxer's file not checked by hand yet (Chromium and music-metadata
+are); §5 follow-up scenarios (double click, emoji, offline) are not automated.
 **Updated:** 2026-09-26.
 
 ## 1. Goal
@@ -34,13 +41,16 @@ without configuring anything.
 | Minimal diff | Direct click = download; the upstream menu code stays in place but unreachable; strings via `t(key)`; **no rewrite of the hook** (only small additions) | Merging upstream stays viable when YouTube changes the player |
 | Extension ID | Fixed `key` in the manifest → ID `ogenoilmpfaooogllahggcdcejoeeodd` on every machine. Private key in the vault (item `karaoke-mp3-downloader-extension-key`, folder "Git & DevOps"), never in the repo | Needed for the §6 allowlist, the option-3 `.crx`, and stable `chrome://extensions/?id=…` links in the README |
 | Dad's browser | Google Chrome on **Windows 11** | Confirmed 2026-09-25. **uBlock Origin Lite** already installed; it must be in **"Complete"** filtering mode on youtube.com — in the default "Basic" mode ads enter the stream and the capture aborts |
-| Ads | Button disabled while `#movie_player` has the `ad-showing` class; an ad starting mid-capture cancels the capture with a clear message (`adDetected`) | The upstream hook does not detect ads; without this the symptom is a corrupted file or a generic error |
+| Ads | Button disabled while `#movie_player` has the `ad-showing` class; an ad starting mid-capture cancels the capture with a clear message (`adDetected`), and the ad is then let play out (v1.3.0) | The upstream hook does not detect ads; without this the symptom is a corrupted file or a generic error. The play-out: the capture pauses the player, so a cancelled ad stayed paused, `ad-showing` never cleared and the button stayed disabled (seen in Phase 8's long run) |
 | Dev folder | `C:\sources\extensions\baixar-mp3-karaoke` (this one) | |
 | Folder on Dad's laptop | `%LOCALAPPDATA%\KaraokeMP3\extension` | No admin, invisible to him, outside Downloads (cannot be deleted by accident) |
 | Songs folder | `Downloads\<songsFolder>`: "Músicas para cantar" (pt-BR) / "Songs to sing" (en). The extension reads `chrome.i18n.getMessage('songsFolder')`; the installer decides via `Get-UICulture` | Named after its purpose, localised like everything else. Small risk: Windows in one language and Chrome in another → two names; Chrome creates the sub-folder on first download anyway, only the desktop shortcut would point elsewhere |
 | Button | "⬇ Download video" / "⬇ Baixar vídeo": a big red pill fixed in the top-right corner of the player, outside YouTube's control bar. Was "Download MP3" until v1.0.0 | One action, no menu. Video only since 2026-09-26 (Phase 6): some songs are in English and need the lyrics on screen; Vinicius chose one button over two. In the control bar it was nearly invisible (the bar auto-hides and YouTube's `.ytp-button` fixes a 48px width); Vinicius asked for something his dad cannot miss |
 | Output | 720p `.mp4`, H.264 + AAC, title/artist atoms, saved as `<songsFolder>/<title>.mp4`. The hook tells the page that AV1, VP9, VP8 and Opus are undecodable, so YouTube streams avc1 + mp4a.40.2 and the file is a **stream copy** (seconds). Fallback if a video still is not H.264: upstream's libx264 re-encode (slow, logged) | The videos play on the laptop only, but H.264 + AAC plays on anything and costs nothing: the alternative was a single-thread re-encode of tens of minutes, or a VP9-in-MP4 that old players refuse. 720p reads fine and is half of 1080p. Verified with `tests/spike/codec-steering.mjs` on 2026-09-26. Side effect: that Chrome watches YouTube in H.264 (no 1440p/4K) |
-$1| Curtain | While the capture runs, `#ytdl-curtain` inside `#movie_player` shows the frame the video was on (canvas snapshot, dimmed) with "Downloading… N%", a bar and "Don't close this tab"; clicks and the player's plain-key shortcuts are swallowed; lifted when the capture ends and the seek back has landed. The video comes back where it was, playing if it was playing | Phase 7 (2026-09-26): the hook hops the position forward to make YouTube fetch the next pieces, so the scrubber ran and the picture jumped for ~10 s — to Dad it looked like the video playing on its own. Vinicius chose the frozen frame over a plain dark curtain or just explaining it; a seek or a play mid-capture would corrupt the capture, hence the swallowing. Inside the player so it also shows in fullscreen (the page-level toast does not) |
+| Long videos | Nothing holds the whole video. The hook hands each captured piece to the UI script as it is appended (the buffer is transferred, not copied); the UI relays it to the offscreen page at once (base64 in 4 MB messages — the only road from a content script to an extension page — with back-pressure: above 48 MB queued the hook stops hopping until the queue is under 12 MB); the offscreen page keeps the pieces as Blob parts (Chrome pages big blobs out to disk) and feeds `mp4mux.js`, which keeps only the sample tables. Capture cap: 2 h or 3× the video's length | Phase 8 (2026-09-26): Vinicius's brother wants 1–2½ h videos. v1.2.0 copied the whole video five or six times across three processes — the pieces plus a joined array in the tab, base64 chunks plus a joined array in the offscreen page, input + output + `+faststart` rewrite + read-back inside ffmpeg, whose wasm heap tops out at 2 GB — and died at the end with every ffmpeg fallback failing in turn: "a lot of errors", no file. A 2½-hour 720p video is 2–3 GB. The capture stays sequential: it drives YouTube's one player, and Vinicius said the waiting is no problem |
+| Muxer | `extension/mp4mux.js` (pure JS, no dependencies, unit-tested in Node) turns the two fragmented-MP4 tracks into an ordinary MP4: `moov` first (index, correct duration, edit lists for B-frames and for the audio/video start offset, ©nam/©ART tags), then `mdat` assembled from the blob parts. ffmpeg.wasm stays for the fallbacks (another codec → libx264, MP3, exact cuts), reading the blobs through a WORKERFS mount, without `+faststart` | ffmpeg could not do it within memory: its output has to sit whole in its file system and be read back whole (≥ 3× the file), and fragmented-MP4 output — the only piecewise option — carries no duration in `mvhd`, so Windows Media Player and music-metadata show none. The muxer is ~500 lines because the input is exactly what MSE requires (one `traf` per `moof`, moof-relative offsets); anything else throws and ffmpeg takes over. It does handle YouTube's mid-video stream switches (a further init segment: a second `stsd` entry, another clock, or a clock that starts over), which ffmpeg's copy did not — it stopped there. Bonus: the file is ready a quarter of a second after the capture, index first |
+| Progress display | The curtain covers the whole job: "Downloading… N%" during the capture, then "Preparing the file… N%"; the video stays paused and muted under it (`hold` / `resume` in the hook) and comes back, playing if it was playing, when the file is saved. The toast appears only with the result ("Done" + "Open folder", or the error code) | Phase 8: Vinicius — the toast's bar in the corner repeated the curtain's percentage. With long videos the preparation stage is long enough to see, so it moved under the curtain too |
+| Curtain | While the capture runs, `#ytdl-curtain` inside `#movie_player` shows the frame the video was on (canvas snapshot, dimmed) with "Downloading… N%", a bar and "Don't close this tab"; clicks and the player's plain-key shortcuts are swallowed; lifted when the capture ends and the seek back has landed. The video comes back where it was, playing if it was playing | Phase 7 (2026-09-26): the hook hops the position forward to make YouTube fetch the next pieces, so the scrubber ran and the picture jumped for ~10 s — to Dad it looked like the video playing on its own. Vinicius chose the frozen frame over a plain dark curtain or just explaining it; a seek or a play mid-capture would corrupt the capture, hence the swallowing. Inside the player so it also shows in fullscreen (the page-level toast does not) |
 | Update shortcut | "Update Karaoke Downloader" / "Atualizar Baixador" → `%LOCALAPPDATA%\KaraokeMP3\update.cmd` → `powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1` (local copy next to it; `pwsh` as fallback; a plain line + pause if neither exists). The local copy downloads the latest `install.ps1` and hands over to it (`-NoSelfUpdate`) before doing anything | Phase 7: until v1.1.0 the .lnk ran `powershell.exe -Command "irm <url> \| iex"` itself. On Dad's Windows 11 that ended in "cannot find powershell.exe" (cause not found — the identical .lnk works on Vinicius's machine), and with `-Command` a failed download closed the window before anyone could read it. The .cmd resolves PowerShell through PATH at run time, avoids the `irm \| iex` download cradle inside a .lnk (a pattern antivirus heuristics flag) and keeps every error on screen; the self-update keeps the update logic itself current |
 | Toolbar icon | **None** (upstream has no `action`/popup and we will not add one) | Less diff; the folder opens from the desktop shortcut and from the toast's "Open folder" |
 | Distribution | GitHub Release (zip of `extension/`) + `install.ps1` at the repo root | Fixed URL `releases/latest/download/karaoke-mp3-downloader.zip` |
@@ -392,6 +402,127 @@ powershell.exe" box and Windows 11; nothing more could be checked remotely.
       `update.cmd`. If PowerShell itself does not open on that laptop (Win+R →
       `powershell`), that is the finding to bring back.
 
+### Phase 8 — Long videos (agent, 2026-09-26)
+
+Vinicius's brother tried a video of over an hour with v1.2.0: "a lot of errors at the
+end and it did not save the mp4". Vinicius's decisions: fix it properly (the plan
+agreed in the chat — stream the pieces, disk-backed blobs, no whole-file copies),
+sequential capture is fine ("the time we need to wait is not a problem"), and one
+progress display (§2 "Progress display"). Design and reasons: §2 "Long videos",
+"Muxer".
+
+- [x] `extension/mp4mux.js` + `tests/unit/mp4mux.test.mjs`: 8 tests on a synthetic
+      pair of tracks built box by box (B-frames with signed composition offsets, a
+      fragment appended twice, a hole in the timeline, a track that starts late, feeds
+      cut at 1 byte / 1000 bytes / 64 KB); the output is checked box by box and byte by
+      byte (every `co64` offset lands on its sample) and through music-metadata and
+      `mp4-probe`.
+- [x] Hook: `emit()` transfers each piece to the UI as it is appended (`segment`
+      messages; `assemble()` is gone); `hold` keeps the video paused and muted until
+      `resume`; `pressure` pauses the hopping; the cap is 2 h or 3× the duration. Also:
+      after a cancel with an ad on screen, `restore` lets the ad play even if the video
+      was paused before the click — the long run showed the ad sitting there paused,
+      `ad-showing` never clearing and the button staying disabled.
+- [x] UI: `makeRelay()` — a queue and a pump that overlap the capture; `startDownload`
+      keeps the curtain up through "Preparing the file… N%" and shows the toast only at
+      the end; `b64encode` uses the native `Uint8Array.prototype.toBase64` when present.
+- [x] Offscreen: each chunk → a Blob part + `Fmp4Muxer.feed()`; `finalize` uses the
+      muxer for H.264 + AAC with no trim and no re-encode, ffmpeg otherwise (WORKERFS
+      mount of the blobs, `writeFile` if the core lacked it; `+faststart` dropped);
+      `ytdl-abort` drops a failed job's blobs. `mp4mux.js` is loaded by `offscreen.html`.
+- [x] Re-init segments (found by the 3-hour run, see below): on a long video YouTube
+      switches streams mid-way and a second init segment arrives on the track. The
+      muxer's first version refused it, ffmpeg took over and **ffmpeg stopped at that
+      point too** — a 14-minute file of a 3-hour show, saved and announced as "Done".
+      Now a re-init keeps the track: an identical sample entry is reused, a new one
+      becomes a second `stsd` entry that the following chunks point at through `stsc`
+      (ordinary MP4), another clock is allowed (the samples keep their own units, the
+      timeline is kept on the first clock, and the index is written in the least
+      common multiple of all clocks seen — exact; 15360 and 90000 give 5 760 000),
+      and a clock that starts over is bridged (`dtsOffset`; a mere re-fetch after the
+      re-init is still a duplicate). Why it happens: a spike (`tests/.tmp/reinit-spike.mjs`,
+      throwaway) showed that plain seeking never re-inits; under the capture's
+      aggressive fetching the SABR player alternates between two 720p H.264 encodings
+      of the same video (`avc1.4d401e` and `avc1.640020`), 28 times in 3 hours.
+- [x] Torn streams (the next finding, same run: "video: not an MP4 stream" after
+      839 s). When the player switches it calls `SourceBuffer.abort()`: MSE throws away
+      the part of the current append it had not parsed and the player re-sends the
+      segment from its start — so the bytes the hook had already forwarded end in the
+      middle of a box, and the box parser (ours, and ffmpeg's) reads garbage from there.
+      Now the hook patches `abort()` too and sends a `reset` marker down the same
+      channel (an empty chunk); the muxer drops its pending partial box and any
+      fragment header waiting for its data (`resync`). Safety net without the marker:
+      a header that makes no sense makes the parser scan forward to the next box it
+      recognises (`moof`, `styp`, `ftyp`, `sidx`, `moov`, …) and go on from there — the
+      timeline survives, at most one sample around the tear is garbage. An `mdat`
+      without its header, or a header without its data, is dropped and counted.
+      Counted in the stats as `resyncs`, `orphans`, `skippedBytes`; the hook reports
+      `aborts` per track.
+      Guard for whoever writes the file: `finalize` gets `expectedSeconds` from the UI
+      and refuses a file shorter than 90 % of it (the muxer's tables, or `mvhd` of
+      ffmpeg's output via `Fmp4Muxer.durationOf`) — an error to retry beats a "Done"
+      over a quarter of the show. Diagnostics: the hook reports `pieces` and `inits`
+      per track, the offscreen answer carries `how` (`js` / `ffmpeg:<run>`), `seconds`,
+      the muxer's `stats` (inits, entries, fragments, dropped, gaps, resets) and the
+      reason ffmpeg was used; `content_ui.js` logs both to the page console
+      (`[Karaoke downloader <version>] captured: … / saved: …`) and the specs print them.
+- [x] Tests: the e2e spec expects the toast only at the end and the "preparing" text
+      on the curtain, prints the extension's console lines, and adds step 5 — Chromium
+      itself opens the saved file, seeks to the middle and plays on. Green in pt-BR and
+      en-US on 2026-09-26: zoo ~3 s, Caminandes ~15 s click → "Done" (the muxing
+      itself: 0.3 s). 26 unit tests (14 for the muxer).
+- [x] Long run: `tests/karaoke-long.spec.mjs` (opt-in, `KMD_LONG=1`) finds a video of
+      `KMD_LONG_MIN` minutes or more (default 60) through a YouTube search — Creative
+      Commons results first, then plain; the "over 20 minutes" filter is `sp=EgIYAg%3D%3D`
+      — or takes `KMD_LONG_VIDEO`; prunes the ad slots out of the player responses (this
+      browser has no ad blocker; an ad cancels the capture by design) and retries after
+      one anyway; downloads the video, samples the browser's memory every 15 s
+      (`Win32_Process`, Playwright's chromium.exe only) and checks the file (codecs,
+      duration = source ± 5 s, Chromium seeks to the middle and near the end). Results,
+      2026-09-26, Vinicius's machine:
+      - First attempt, a 1:00:19 animated karaoke (`Q3HLPgGa63k`): a **mid-roll ad at
+        85 %** (344 s in) cancelled the capture with the ad message, as designed — the
+        test browser has no ad blocker (Dad's laptop has uBO Lite in "Complete"; the
+        brother needs the same). Until then ~800 MB of pieces had gone through: the
+        tab's renderer stayed at 656–843 MB (YouTube's own weight), the browser
+        process (Chrome's blob store) grew from 248 to 801 MB, the extension's page
+        never entered the top three processes. The spec now prefers Creative Commons
+        results and retries after an ad.
+      - `YxAyXj3SQq8`, 1:00:50 (`karaoke`, CC): **green** — 239 s from the click to
+        "Done" (the capture itself; the muxer took 0.6 s), download complete at 246 s;
+        149 MB (a still-picture karaoke, 1280×720 avc1 + mp4a), duration 3649.8 s =
+        source, title + artist tags; Chromium plays it from 30:25 and from 60:20.
+        Memory: 1647 MB before the click, peak 2284 MB across all of the browser's
+        processes (renderer 713, browser 534, gpu 384) — the extension costs a few
+        hundred MB in the blob store, not the video's size.
+      - `PtFrP8C_gLo`, 2:56:32, a recorded karaoke stream (`karaoke`, CC, `KMD_LONG_MIN=120`):
+        the run that found the two defects above (first outcome: a 14-minute file
+        announced as "Done"; then, with the guard, E2 "ffmpeg wrote only 260 s" and
+        "839 s … [muxer: video: not an MP4 stream]"). With the re-init and torn-stream
+        handling: **the muxer wrote the whole video** — 2 121 483 033 bytes of video +
+        179 926 979 of audio in 15 388 pieces, 23 video / 47 audio inits, 22 / 46 aborts;
+        635 524 frames in 1 769 fragments, 3 duplicates dropped, 22 resyncs, 4.7 MB
+        of torn bytes skipped, no gap, no orphan; 849 s from the click to "Done" (the
+        capture 840 s, the muxer ~8 s), the 2 282 213 878-byte file complete 20 s later.
+        Checked on the file (`tests/.tmp/check-file.mjs`, throwaway): avc1 1280×720 +
+        mp4a, duration 10592.13 s = source, title + artist tags, Chromium plays it from
+        5:00, 1:28, 2:00:00 and 2:55:32. Memory: peak 4 349 MB across the browser's
+        processes (browser process 2 286 MB — Chrome keeps the blobs in memory up to a
+        quota that scales with the machine's RAM and paged them out to disk twice
+        during the run; the tab's renderer 900–1 200 MB; the extension page never in
+        the top three). The spec itself then tripped over its own probe: Node refuses
+        `readFileSync` above 2 GiB — `tests/mp4-probe.mjs` now reads only the headers
+        and the `moov`. **Final run, green end to end (15.4 min):** 875 s click →
+        "Done", the 2 176 MB file complete at 898 s, 26 inits / 25 resyncs, duration
+        10592.13 s, Chromium plays it from 1:28:16 and 2:56:02; memory peak 4 452 MB
+        (browser process 2 399 MB, renderer 1 000 MB).
+- [x] Docs: READMEs (what happens inside, the curtain paragraph, the size and
+      free-disk line, the tests paragraph), §2 rows "Long videos", "Muxer", "Progress
+      display", "Ads", §7 risks, §9 (`preparing`), this plan. Manifest 1.3.0.
+- [ ] Tag `v1.3.0` → Release → check the workflow ran and the zip is there.
+- [ ] Dad's laptop (the install line, once — Phase 7) and the brother's first install
+      (README) — Vinicius. Also a look at the file in Windows Media Player and VLC.
+
 ## 5. Playwright tests
 
 **Why:** Vinicius has a broken arm; the agent tests on its own and keeps evidence
@@ -401,8 +532,10 @@ powershell.exe" box and Windows 11; nothing more could be checked remotely.
 with devDependencies `@playwright/test` and `music-metadata` (tags and duration of
 the saved file), `tests/mp4-probe.mjs` (codecs and frame size, no ffprobe),
 `npx playwright install chromium`, `playwright.config.mjs`,
-`tests/karaoke-video.spec.mjs`, `tests/unit/*.test.mjs` (`installer.test.mjs`
-runs the real `install.ps1` in a throwaway folder, Windows only — Phase 7); `npm test`
+`tests/karaoke-video.spec.mjs`, `tests/karaoke-long.spec.mjs` (opt-in: `KMD_LONG=1`,
+a video of an hour or more, memory sampled — Phase 8), `tests/unit/*.test.mjs`
+(`installer.test.mjs` runs the real `install.ps1` in a throwaway folder, Windows
+only — Phase 7; `mp4mux.test.mjs` builds fragmented MP4 tracks box by box); `npm test`
 runs `node --test` and then Playwright. Debugging tip (Phase 6): a throwaway script that
 launches the same persistent context, listens to `page.on('pageerror')` and
 `page.on('console')` and dumps the state of `#movie_player` / `#ytdl-btn` finds a
@@ -504,6 +637,15 @@ on managed machines). Options, by effort:
   powershell.exe", cause unknown). Since v1.2.0 the shortcut runs `update.cmd` → the
   local `install.ps1`, and any error stays on screen. Fallback for Dad: paste the
   install line into PowerShell again — it redoes everything, shortcut included.
+- **A player that dislikes the muxer's file.** Since v1.3.0 the MP4 is written by
+  `mp4mux.js`, not ffmpeg: a plain MP4, index first, edit lists as ffmpeg writes them.
+  Chromium plays and seeks it in the tests and music-metadata reads it; Windows Media
+  Player and VLC are still to be looked at by hand. Symptom to bring back: a file that
+  opens in one player and not in another. ffmpeg's copy path is still there
+  (`ffmpegFinalize`) should the muxer have to be switched off.
+- **YouTube changes its segments** (a second init mid-stream, absolute data offsets):
+  the muxer throws, the console says why, and ffmpeg takes over for that download —
+  slower and memory-bound again, but the file still comes out for the short videos.
 - Closing the tab mid-way aborts.
 - Chrome 137+: no command-line shortcut; always "Load unpacked".
 
@@ -527,6 +669,7 @@ install-free): paste link → MP3. More robust and needs no ad blocker; worse UX
 | `button` | ⬇ Download video | ⬇ Baixar vídeo |
 | `downloading` | Downloading… $1% | Baixando… $1% |
 | `converting` | Saving the video… | Salvando o vídeo… |
+| `preparing` | Preparing the file… $1% | Preparando o arquivo… $1% |
 | `keepTabOpen` | Don't close this tab | Não feche esta aba |
 | `done` | Done! Saved in "Songs to sing" | Pronto! Está em "Músicas para cantar" |
 | `openFolder` | Open folder | Abrir pasta |
@@ -546,7 +689,7 @@ install-free): paste link → MP3. More robust and needs no ad blocker; worse UX
 - Claude Code's auto mode blocks the vault: it needs `vault unlock` (Vinicius, in
   his terminal) and the rule in `.claude/settings.local.json` (git-ignored, this
   machine only).
-- Order: Phase 1 → 0 → 2 → 3 → 3½ → 4 → tag `v1.0.0` → 5 → 6 → tag `v1.1.0` → 7 → tag `v1.2.0`.
+- Order: Phase 1 → 0 → 2 → 3 → 3½ → 4 → tag `v1.0.0` → 5 → 6 → tag `v1.1.0` → 7 → tag `v1.2.0` → 8 → tag `v1.3.0`.
 - Write scope: this folder only. Do not touch Vinicius's Chrome without asking.
 - Upstream files are CRLF on disk (Windows checkout; LF in the repo). Scripts that
   edit them must normalise line endings, or multi-line anchors never match.

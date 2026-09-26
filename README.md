@@ -18,8 +18,8 @@ When it is done the video comes back where it was, and the notice offers **Open 
 
 - Adds a **⬇ Download video** button to the YouTube player, on `youtube.com/watch` pages.
 - One click saves the whole video as a 720p MP4 (H.264 + AAC), lyrics on screen included, with title and artist tags, into `Downloads\Songs to sing` (`Downloads\Músicas para cantar` when Chrome is in Portuguese). An **Open folder** button shows the file when it is done.
-- Everything happens inside the browser: the video the player is already streaming is captured and written to an MP4 with ffmpeg.wasm, without re-encoding, so it takes seconds rather than minutes (about 9 seconds for a 2½-minute video). No external service, no yt-dlp, nothing else to install.
-- While it captures, the extension hops the player's position forward so that YouTube sends the next pieces. So the player is covered by a curtain (the frame the video was on, dimmed, with the progress in big type) until the capture ends; without it the scrubber ran on its own and the video seemed to be playing. Clicks and keys on the player are blocked meanwhile. Afterwards the video comes back where it was and keeps playing, if it was playing.
+- Everything happens inside the browser: the video the player is already streaming is captured and written to an MP4 by a small muxer of our own (ffmpeg.wasm only steps in if a video arrives in another codec), without re-encoding, so it takes seconds rather than minutes (about 9 seconds for a 2½-minute video). Long videos work too: a two-hour show is written out piece by piece as it arrives, so it costs no more memory than a song, only disk space. No external service, no yt-dlp, nothing else to install.
+- While it captures, the extension hops the player's position forward so that YouTube sends the next pieces. So the player is covered by a curtain (the frame the video was on, dimmed, with the progress in big type: "Downloading…", then "Preparing the file…") until the file is saved; without it the scrubber ran on its own and the video seemed to be playing. Clicks and keys on the player are blocked meanwhile. Afterwards the video comes back where it was and keeps playing, if it was playing, and a small notice offers to open the folder.
 - The interface follows Chrome's language: English by default, Brazilian Portuguese automatically.
 - Once a day it checks GitHub for a newer release and says so.
 
@@ -67,7 +67,7 @@ If the shortcut does not open, or complains about PowerShell (it happened with t
 ## Limits
 
 - Only on `youtube.com/watch` pages (not Shorts).
-- 720p, fixed: enough to read the lyrics; a 4-minute song is roughly 30 to 80 MB.
+- 720p, fixed: enough to read the lyrics; a 4-minute song is roughly 30 to 80 MB. An hour of video is anything from 150 MB (a still picture with the lyrics) to about 800 MB (a filmed show), so a 3-hour show can reach 2.5 GB. While such a video is being saved Chrome also keeps the captured pieces, on disk when memory runs short, so leave about twice the file's size free on the disk.
 - To get a file that plays everywhere without re-encoding, the extension tells YouTube that this browser cannot decode AV1, VP9 or Opus. YouTube then plays everything in H.264 while the extension is installed: no visible difference up to 1080p, but 1440p and 4K are not offered.
 - If a video still arrives in another codec, the extension re-encodes it to H.264 — correct, but that takes many minutes.
 - No toolbar icon: everything happens inside the player.
@@ -83,7 +83,7 @@ KMD_LANG=en-US npx playwright test    # end-to-end in English (default: pt-BR)
 node tests/spike/codec-steering.mjs   # which codecs YouTube serves once AV1/VP9/Opus are hidden
 ```
 
-The end-to-end tests load `extension/` unpacked into Playwright's Chromium and save two videos — a 19-second one and a 2½-minute one at 720p — checking the curtain, the MP4 (H.264 + AAC, frame size, duration, tags) and that the player comes back where it was, playing. They run locally only — YouTube blocks datacenter IPs. Releases are published by GitHub Actions on a `v*` tag. Decisions and status: [`specs/PLAN.md`](specs/PLAN.md).
+The end-to-end tests load `extension/` unpacked into Playwright's Chromium and save two videos — a 19-second one and a 2½-minute one at 720p — checking the curtain, the MP4 (H.264 + AAC, frame size, duration, tags), that Chromium itself plays and seeks the file, and that the player comes back where it was, playing. A third, opt-in spec (`KMD_LONG=1`) does the same with a video of an hour or more. They run locally only — YouTube blocks datacenter IPs. Releases are published by GitHub Actions on a `v*` tag. Decisions and status: [`specs/PLAN.md`](specs/PLAN.md).
 
 ## Credits and licence
 

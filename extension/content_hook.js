@@ -8,10 +8,11 @@
 //   * The player feeds appendBuffer() ARBITRARY byte fragments (16–128 KB), not
 //     whole segments, and the container is often WebM (VP9/AV1 + Opus), sometimes
 //     fragmented MP4 — with the codec steering below it is always fragmented MP4
-//     (avc1 + mp4a). So we do NOT parse boxes. Instead we simply concatenate every
-//     byte appended to a track, in order, which reconstructs that track's original
-//     file exactly. This is only valid if fragments arrive in stream order, so we
-//     capture during a monotonic forward play-through (never seeking backward).
+//     (avc1 + mp4a). So we do NOT parse boxes here. Instead every byte appended to
+//     a track is forwarded, in order, which reconstructs that track's original
+//     file exactly (the offscreen page does the parsing). This is only valid if
+//     fragments arrive in stream order, so we capture during a monotonic forward
+//     play-through (never seeking backward).
 //
 // Communication with the isolated-world UI script is via window.postMessage.
 (function () {
@@ -22,7 +23,10 @@
     videoId: null,
     capturing: false,
     cancel: false,                 // set by the UI (an ad started); the capture loop bails out
-    tracks: Object.create(null),   // kind -> { mime, parts: Uint8Array[] }
+    pressure: false,               // set by the UI: the muxer is behind, stop pulling new pieces
+    emit: null,                    // during a capture: hands each captured piece to the UI
+    resume: null,                  // with `hold`: lets the video play again when the UI says so
+    tracks: Object.create(null),   // kind -> { mime, seq, bytes } — the pieces themselves are emitted
     // Latest init segment seen per track, kept UNGATED. Init segments usually arrive
     // once at load (the audio itag is the same at every quality, so a quality switch
     // does NOT re-init audio) — so we remember them and seed a track that starts
@@ -120,19 +124,25 @@
         if (u8 && u8.length) {
           const init = startsWithInit(u8);
           // Always remember the latest init (ungated) — it usually only arrives at load.
-          if (init) store.lastInit[kind] = { bytes: u8.slice(), mime: this.__ytdlMime || '' };
+          if (init) {
+            store.lastInit[kind] = { bytes: u8.slice(), mime: this.__ytdlMime || '' };
+            if (store.capturing && store.tracks[kind]) store.tracks[kind].inits++; // a stream switch mid-capture
+          }
           if (store.capturing) {
             let t = store.tracks[kind];
             if (!t) {
               if (init) {
-                t = store.tracks[kind] = { mime: this.__ytdlMime || '', parts: [u8.slice()] };
+                t = store.tracks[kind] = { mime: this.__ytdlMime || '', seq: 0, bytes: 0, inits: 1, aborts: 0 };
+                emit(kind, t, u8.slice());
               } else if (store.lastInit[kind]) {
                 // media arrived without a fresh init → seed the track with the stored init
-                t = store.tracks[kind] = { mime: store.lastInit[kind].mime, parts: [store.lastInit[kind].bytes, u8.slice()] };
+                t = store.tracks[kind] = { mime: store.lastInit[kind].mime, seq: 0, bytes: 0, inits: 1, aborts: 0 };
+                emit(kind, t, store.lastInit[kind].bytes.slice());
+                emit(kind, t, u8.slice());
               }
               // else: no init available yet — skip until one appears
             } else {
-              t.parts.push(u8.slice());
+              emit(kind, t, u8.slice());
             }
           }
         }
@@ -141,13 +151,31 @@
     return OrigAppend.apply(this, arguments);
   };
 
-  function assemble(kind) {
-    const t = store.tracks[kind];
-    if (!t || !t.parts.length) return null;
-    let n = 0; for (const p of t.parts) n += p.length;
-    const out = new Uint8Array(n);
-    let o = 0; for (const p of t.parts) { out.set(p, o); o += p.length; }
-    return { bytes: out, mime: t.mime };
+  // abort() throws away whatever of the current append MSE had not parsed yet — the
+  // player then sends the segment again from its start. The bytes we already handed
+  // on end in the middle of a box, so the muxer is told to drop that partial box.
+  const OrigAbort = SourceBuffer.prototype.abort;
+  SourceBuffer.prototype.abort = function () {
+    try {
+      const kind = this.__ytdlKind;
+      const t = kind && store.capturing ? store.tracks[kind] : null;
+      if (t) {
+        t.aborts++;
+        t.seq++;
+        if (store.emit) store.emit({ segment: true, kind, mime: t.mime, seq: t.seq, reset: true, bytes: new ArrayBuffer(0) }, []);
+      }
+    } catch (e) { /* never break playback */ }
+    return OrigAbort.apply(this, arguments);
+  };
+
+  // Hand a captured piece to the UI script right away — the buffer is transferred,
+  // not copied — so the tab never holds more than the piece in flight and a
+  // two-hour video costs no more memory than a song. (Until v1.2.0 the pieces were
+  // collected here and joined into one array at the end: several copies of the
+  // whole video, which is what broke long videos.)
+  function emit(kind, t, bytes) {
+    t.seq++; t.bytes += bytes.length;
+    if (store.emit) store.emit({ segment: true, kind, mime: t.mime, seq: t.seq, bytes: bytes.buffer }, [bytes.buffer]);
   }
 
   // ---- player helpers ------------------------------------------------------
@@ -298,6 +326,10 @@
     const span = Math.max(0.1, capEnd - capStart);
     const mediaEnd = isFinite(dur) && dur > 0 ? dur : capEnd;
     const started = Date.now();
+    // Hard cap on the capture itself: two hours, or three times the video's length for
+    // the long ones (a 2½-hour show on a slow line). The pieces are shipped out as
+    // they arrive, so the length no longer costs memory.
+    const capMs = Math.max(120 * 60, 3 * dur) * 1000;
     try {
       try { v.pause(); } catch (e) {}
       capturedFrom = Math.min(capStart, bufferedStartAt(capStart));
@@ -306,6 +338,8 @@
         await sleep(300);
         if (vidId() !== capId) throw new Error('video changed during capture');
         if (store.cancel) throw new Error('cancelled');
+        // the UI is still shipping earlier pieces to the muxer: don't pull more yet
+        if (store.pressure) { if (unsticking) { unsticking = false; try { v.pause(); } catch (e) {} } continue; }
         noteTrackStarts();
 
         const edge = coveredTo(frontier);
@@ -334,7 +368,7 @@
         // a stream can simply end a couple of seconds before its declared duration
         if (stall >= 25 && frontier >= mediaEnd - 3) break;
         if (stall >= 200) break;                          // ~60s without a single new byte
-        if (Date.now() - started > 120 * 60 * 1000) break; // hard cap (hour-long karaoke mixes)
+        if (Date.now() - started > capMs) break;          // hard cap, see above
       }
       capturedFrom = Math.min(capturedFrom, bufferedStartAt(capStart));
       noteTrackStarts();
@@ -343,9 +377,18 @@
       // restore player state
       try { v.playbackRate = prev.rate; } catch (e) {}
       seekVia(prev.time);
-      try { v.muted = prev.muted; } catch (e) {}
       keepAutoplayOff(); // leave autoplay disabled — don't turn it back on
-      if (!prev.paused) { try { v.play(); } catch (e) {} }
+      const restore = () => {
+        try { v.muted = prev.muted; } catch (e) {}
+        // An ad that started mid-capture was paused along with everything else; let it
+        // play out, or the player sits on it and the button stays disabled.
+        let adShowing = false;
+        try { adShowing = !!(player() && player().classList.contains('ad-showing')); } catch (e) {}
+        if (!prev.paused || adShowing) { try { v.play(); } catch (e) {} }
+      };
+      // With `hold` the UI keeps its curtain up while the file is prepared and says
+      // when the video may play again (`resume`); otherwise right away, as before.
+      if (opts.hold) store.resume = restore; else restore();
     }
     // The user asked for a specific range: deliver it or say so. Returning what happened
     // to arrive would produce a clip whose picture stops before its sound.
@@ -569,7 +612,7 @@
   // ---- bridge to the isolated-world UI script ------------------------------
   window.addEventListener('message', async (ev) => {
     if (ev.source !== window || !ev.data || ev.data.__ytdl_to_hook !== true) return;
-    const { cmd, reqId, height, format, start, end } = ev.data;
+    const { cmd, reqId, height, format, start, end, hold, high } = ev.data;
     const reply = (payload, transfer) => window.postMessage(
       Object.assign({ __ytdl_from_hook: true, reqId }, payload), '*', transfer || []);
     try {
@@ -588,34 +631,48 @@
         // (360p) to save bandwidth while keeping video/audio as separate tracks.
         const targetQ = isMp3 ? 'medium' : (Q[height] || 'hd720');
         const preQ = (targetQ === 'small' || targetQ === 'tiny' || targetQ === 'medium') ? 'tiny' : 'medium';
-        const cap = await playthrough(
-          { targetQ, preQ, start, end, needVideo: !isMp3 },
-          (pct) => reply({ progress: pct, phase: 'buffering' }));
-
-        const aud = assemble('audio');
-        if (!aud) throw new Error('could not capture the audio track');
+        // The pieces go to the UI as they are captured (`segment` messages, see
+        // emit()); the final message only describes the tracks.
+        store.resume = null;
+        store.pressure = false;
+        store.emit = reply;
+        let cap;
+        try {
+          cap = await playthrough(
+            { targetQ, preQ, start, end, needVideo: !isMp3, hold: !!hold },
+            (pct) => reply({ progress: pct, phase: 'buffering' }));
+        } finally {
+          store.emit = null;
+        }
+        const aud = store.tracks.audio;
+        if (!aud || !aud.bytes) throw new Error('could not capture the audio track');
         const payload = {
           ok: true, done: true,
           capturedFrom: cap.capturedFrom,   // where the captured file actually begins
           capturedFromVideo: cap.capturedFromVideo,
           capturedFromAudio: cap.capturedFromAudio,
-          audio: { mime: aud.mime, size: aud.bytes.byteLength },
+          audio: { mime: aud.mime, size: aud.bytes, pieces: aud.seq, inits: aud.inits, aborts: aud.aborts },
         };
-        const transfers = [aud.bytes.buffer];
-        payload._a = aud.bytes.buffer;
         if (!isMp3) {
-          const vid = assemble('video');
-          if (!vid) throw new Error('could not capture the video track');
-          payload.video = { mime: vid.mime, size: vid.bytes.byteLength };
-          payload._v = vid.bytes.buffer;
-          transfers.push(vid.bytes.buffer);
+          const vid = store.tracks.video;
+          if (!vid || !vid.bytes) throw new Error('could not capture the video track');
+          payload.video = { mime: vid.mime, size: vid.bytes, pieces: vid.seq, inits: vid.inits, aborts: vid.aborts };
         }
-        reply(payload, transfers);
+        resetTracks();
+        reply(payload);
       } else if (cmd === 'subtitles') {
         const res = await getSubtitles();
         reply({ ok: true, done: true, text: res.text, lang: res.lang });
       } else if (cmd === 'cancel') {
         store.cancel = true;
+        reply({ ok: true });
+      } else if (cmd === 'pressure') {
+        store.pressure = !!high;
+        reply({ ok: true });
+      } else if (cmd === 'resume') {
+        const restore = store.resume;
+        store.resume = null;
+        if (restore) restore();
         reply({ ok: true });
       }
     } catch (e) {
@@ -629,6 +686,7 @@
       resetTracks();
       store.lastInit = Object.create(null); // inits from the previous video are stale
       store.capturing = false;
+      store.pressure = false;
     }
     scheduleAutoplayOff();
   });

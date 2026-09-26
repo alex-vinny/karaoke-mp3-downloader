@@ -32,7 +32,7 @@ test('every locale has the same keys as en, non-empty, same placeholders', () =>
 
 test('the strings the code relies on exist', () => {
   const en = read('en');
-  for (const key of ['extName', 'extDescription', 'button', 'downloading', 'converting', 'keepTabOpen', 'done', 'openFolder', 'error', 'adDetected', 'updateAvailable', 'songsFolder']) {
+  for (const key of ['extName', 'extDescription', 'button', 'downloading', 'converting', 'preparing', 'keepTabOpen', 'done', 'openFolder', 'error', 'adDetected', 'updateAvailable', 'songsFolder']) {
     assert.ok(en[key], `missing ${key}`);
   }
 });

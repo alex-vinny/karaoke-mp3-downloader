@@ -4,6 +4,7 @@
   "button": { "message": "⬇ Baixar vídeo" },
   "downloading": { "message": "Baixando… $1%" },
   "converting": { "message": "Salvando o vídeo…" },
+  "preparing": { "message": "Preparando o arquivo… $1%" },
   "keepTabOpen": { "message": "Não feche esta aba" },
   "done": { "message": "Pronto! Está em \"Músicas para cantar\"" },
   "openFolder": { "message": "Abrir pasta" },

@@ -1,6 +1,7 @@
 // content_ui.js — isolated world. Draws the one "Download video" button in the
-// YouTube player, drives the MAIN-world capture hook over window.postMessage,
-// then streams the captured tracks to the offscreen ffmpeg worker for muxing.
+// YouTube player, drives the MAIN-world capture hook over window.postMessage and
+// relays the captured pieces, as they arrive, to the offscreen page that writes
+// the file (mp4mux.js, ffmpeg.wasm for the fallbacks).
 // While the hook captures, a curtain covers the player (see "curtain" below).
 // Upstream's menu (quality, MP3, subtitles, format toggle) is kept below as
 // openMenu() but is no longer reachable from the UI; the MP3 path still works.
@@ -30,13 +31,14 @@
       window.postMessage(Object.assign({ __ytdl_to_hook: true, cmd, reqId }, extra || {}), '*');
     });
   }
-  // download drives streaming progress + a final result
-  function download(params, onProgress) {
+  // download drives streaming progress, the captured pieces (`segment`) + a final result
+  function download(params, onProgress, onSegment) {
     return new Promise((resolve, reject) => {
       const reqId = reqSeq++;
       const handler = (ev) => {
         if (ev.source !== window || !ev.data || ev.data.__ytdl_from_hook !== true || ev.data.reqId !== reqId) return;
         const d = ev.data;
+        if (d.segment) { onSegment(d); return; }
         if (d.progress != null && !d.done) { onProgress(d); return; }
         window.removeEventListener('message', handler);
         if (d.ok && d.done) resolve(d); else reject(new Error(d.error || 'capture failed'));
@@ -406,37 +408,39 @@
     const { format, height, start, end, plainName } = opts;
     const duration = Math.floor(info.duration || 0);
     const isMp3 = format === 'mp3';
-    const label = isMp3 ? 'MP3' : height + 'p';
     const tt = toast();
     busy = true; cancelledByAd = false;
     refreshButtonState();
     tt.action(null);
-    tt.set(t('downloading', [0]) + ' — ' + t('keepTabOpen'), 0.02);
+    tt.hide(0);
+    // One display for the whole job: the curtain, with the capture and then the
+    // preparation of the file in big type. The toast only reports the result — its
+    // bar in the corner used to repeat the curtain's percentage.
     showCurtain();
     setCurtain(t('downloading', [0]), 0.02);
 
     const { transcode = false } = await chrome.storage.local.get('transcode');
+    const relay = makeRelay();
 
+    // ffmpeg's own progress — the fallbacks only; a re-encode can take many minutes
     const onProg = (msg) => {
-      if (msg && msg.t === 'ytdl-progress') {
-        tt.set(t('converting') + ' ' + Math.round(msg.value * 100) + '% — ' + t('keepTabOpen'), 0.55 + msg.value * 0.45);
-      }
+      if (msg && msg.t === 'ytdl-progress') setCurtain(t('converting') + ' ' + Math.round(msg.value * 100) + '%', msg.value);
     };
     chrome.runtime.onMessage.addListener(onProg);
     try {
+      await relay.begin({ title: info.title || '', artist: info.author || '' });
       let result;
       try {
-        result = await download({ height, format, start, end }, (d) => {
-          tt.set(t('downloading', [Math.round(d.progress * 100)]) + ' — ' + t('keepTabOpen'), d.progress * 0.5);
+        result = await download({ height, format, start, end, hold: true }, (d) => {
           setCurtain(t('downloading', [Math.round(d.progress * 100)]), d.progress);
-        });
+        }, relay.push);
       } catch (err) {
-        throw Object.assign(err, { code: cancelledByAd ? 'E4' : 'E1' });
+        throw Object.assign(err, { code: relay.error ? 'E2' : (cancelledByAd ? 'E4' : 'E1') });
       }
-      // the hopping is over and the player is back where it was: lift the curtain, the
-      // toast alone reports the (quick) saving that follows
-      await pictureBack(800);
-      hideCurtain();
+      // The capture is over; the pieces still in flight reach the muxer now (usually
+      // none: they were shipped while it ran). The curtain stays up meanwhile.
+      setCurtain(t('preparing', [0]), 0);
+      await relay.drain((pct) => setCurtain(t('preparing', [Math.round(pct * 100)]), pct));
 
       const ext = isMp3 ? '.mp3' : '.mp4';
       // Sub-folder of Downloads (chrome.downloads accepts a relative path) + the one
@@ -470,8 +474,6 @@
       const doTranscode = isMp3 ? true : (!!transcode || exactCut || !h264);
       const alignedStart = !isMp3 && needsExactCut && !doTranscode;
 
-      tt.set(t('converting') + ' — ' + t('keepTabOpen'), 0.55);
-
       // The two captured tracks do NOT begin at the same instant — YouTube's audio
       // segment covering the requested point can start ~10s before the video keyframe.
       // Muxing them as-is makes ffmpeg zero each input on its own, which slides the
@@ -484,36 +486,45 @@
       const audioDelay = Math.max(0, capA - base); // audio truly starts later → keep the gap
       const outDuration = isFragment ? Math.max(0, end - base) : 0;
 
-      const res = await muxViaOffscreen({
-        format,
-        video: isMp3 ? null : result._v,
-        audio: result._a,
+      // What was captured, for the console (the offscreen page's own log is out of reach)
+      console.log('[Karaoke downloader ' + VERSION + '] captured:', JSON.stringify({ video: result.video, audio: result.audio, from: result.capturedFrom }));
+      const res = await relay.finalize({
+        format, filename,
         videoMime: result.video && result.video.mime,
         audioMime: result.audio && result.audio.mime,
-        filename, transcode: doTranscode, quickEncode: exactCut && !transcode,
+        transcode: doTranscode, quickEncode: exactCut && !transcode,
         videoSeek, audioSeek, audioDelay, outDuration,
-        title: info.title || '', artist: info.author || '',
+        expectedSeconds: isFragment ? Math.max(0, end - start) : duration,
       });
+      console.log('[Karaoke downloader ' + VERSION + '] saved:', JSON.stringify(res));
 
       if (!res || !res.ok) throw Object.assign(new Error(res && res.error || 'mux failed'), { code: 'E2' });
       const savedAs = res.filename || filename;
+      // Saved. Lift the curtain once the hook's seek back has landed, let the video
+      // play again, and only then the toast reports the result.
+      await pictureBack(800);
+      hideCurtain();
+      await callHook('resume');
       const box = document.getElementById('ytdl-toast');
       if (box) box.setAttribute('data-filename', savedAs); // what the extension asked Chrome to save
       tt.set(t('done'), 1);
       if (res.id != null) tt.action(t('openFolder'), () => { chrome.runtime.sendMessage({ t: 'ytdl-show', id: res.id }); });
       tt.hide(20000);
     } catch (err) {
+      relay.abort();
       fail((err && err.code) || (cancelledByAd ? 'E4' : 'E2'), err);
     } finally {
       hideCurtain();
+      callHook('resume');
       busy = false;
       refreshButtonState();
       chrome.runtime.onMessage.removeListener(onProg);
     }
   }
 
-  // ---- transfer to offscreen ffmpeg ---------------------------------------
+  // ---- transfer to the offscreen page -------------------------------------
   function b64encode(u8) {
+    if (typeof u8.toBase64 === 'function') return u8.toBase64(); // native (recent Chrome), far faster
     let s = '';
     const STEP = 0x8000;
     for (let i = 0; i < u8.length; i += STEP) {
@@ -556,37 +567,78 @@
     throw lastErr || new Error('the ffmpeg worker is not responding');
   }
 
-  async function muxViaOffscreen(job) {
-    const CHUNK = 4 * 1024 * 1024;
-    await chrome.runtime.sendMessage({ t: 'ytdl-ensure' });
-    if (!await offscreenReady()) throw new Error('the ffmpeg worker did not start');
+  // The hook hands over each captured piece as it arrives and the relay ships it on
+  // at once — base64 in 4 MB messages, the only road from a content script to an
+  // extension page — so nothing accumulates here either. Should the muxer fall
+  // behind, the hook is told to stop pulling new pieces (`pressure`) until the
+  // queue is short again. The transfer overlaps the capture; `drain` only waits for
+  // what is still in flight when the capture ends.
+  const CHUNK = 4 * 1024 * 1024;
+  const QUEUE_HIGH = 48 * 1024 * 1024, QUEUE_LOW = 12 * 1024 * 1024;
+  function makeRelay() {
+    const queue = [];   // { kind, mime, bytes: ArrayBuffer }
+    let queued = 0, total = 0, sent = 0, seq = 0; // seq lets the receiver drop a repeated chunk
+    let pumping = null, ready = false, paused = false, closed = false, onDrain = null;
+    const relay = { error: null };
+    const e2 = (msg) => Object.assign(new Error(msg), { code: 'E2' });
 
-    await sendToOffscreen({
-      t: 'ytdl-begin', filename: job.filename, format: job.format,
-      videoMime: job.videoMime, audioMime: job.audioMime,
-      transcode: !!job.transcode, quickEncode: !!job.quickEncode,
-      videoSeek: job.videoSeek || 0, audioSeek: job.audioSeek || 0,
-      audioDelay: job.audioDelay || 0, outDuration: job.outDuration || 0,
-      title: job.title || '', artist: job.artist || '',
-    });
-
-    let seq = 0; // lets the receiver drop a repeated chunk instead of doubling the data
-    const sendTrack = async (name, buf) => {
-      if (!buf) return;
-      const view = new Uint8Array(buf);
-      for (let off = 0; off < view.length; off += CHUNK) {
-        const slice = view.subarray(off, Math.min(off + CHUNK, view.length));
-        const r = await sendToOffscreen({ t: 'ytdl-chunk', track: name, seq, b64: b64encode(slice) });
-        if (!r || !r.ok) {
-          throw new Error('data transfer interrupted (' + name + ')' + (r && r.error ? ': ' + r.error : ''));
+    async function pump() {
+      while (queue.length && !relay.error && !closed) {
+        const item = queue.shift();
+        queued -= item.bytes.byteLength;
+        if (paused && queued < QUEUE_LOW) { paused = false; callHook('pressure', { high: false }); }
+        const view = new Uint8Array(item.bytes);
+        // a reset marker (the player aborted an append) travels as an empty chunk
+        const pieces = item.reset ? [null] : [];
+        for (let off = 0; off < view.length; off += CHUNK) pieces.push(view.subarray(off, Math.min(off + CHUNK, view.length)));
+        for (const slice of pieces) {
+          if (relay.error) break;
+          let r = null;
+          const msg = { t: 'ytdl-chunk', track: item.kind, mime: item.mime, seq, b64: slice ? b64encode(slice) : '', reset: !slice };
+          try { r = await sendToOffscreen(msg); }
+          catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+          if (!r || !r.ok) { relay.error = e2('data transfer interrupted (' + item.kind + ')' + (r && r.error ? ': ' + r.error : '')); break; }
+          seq++;
+          if (slice) sent += slice.length;
+          if (onDrain) onDrain(total ? sent / total : 1);
         }
-        seq++;
       }
+      pumping = null;
+      if (relay.error && !closed) callHook('cancel'); // stop the capture: its pieces have nowhere to go
+    }
+    relay.begin = async (meta) => {
+      await chrome.runtime.sendMessage({ t: 'ytdl-ensure' });
+      if (!await offscreenReady()) throw e2('the muxer page did not start');
+      const r = await sendToOffscreen(Object.assign({ t: 'ytdl-begin' }, meta));
+      if (!r || !r.ok) throw e2('the muxer page refused the job');
+      ready = true;
+      if (queue.length && !pumping) pumping = pump();
     };
-    await sendTrack('video', job.video);
-    await sendTrack('audio', job.audio);
-    // No retry here: a repeated finalize would re-run ffmpeg on already-freed data.
-    return sendToOffscreen({ t: 'ytdl-finalize' }, 0);
+    relay.push = (d) => {
+      if (closed || relay.error) return;
+      queue.push({ kind: d.kind, mime: d.mime, bytes: d.bytes, reset: !!d.reset });
+      queued += d.bytes.byteLength; total += d.bytes.byteLength;
+      if (!paused && queued > QUEUE_HIGH) { paused = true; callHook('pressure', { high: true }); }
+      if (ready && !pumping) pumping = pump();
+    };
+    relay.drain = async (progress) => {
+      onDrain = progress;
+      while (pumping) await pumping;
+      onDrain = null;
+      if (relay.error) throw relay.error;
+      if (paused) { paused = false; callHook('pressure', { high: false }); }
+      progress(1);
+    };
+    relay.finalize = (job) => {
+      closed = true;
+      // No retry: a repeated finalize would re-run the muxer on already-freed data.
+      return sendToOffscreen(Object.assign({ t: 'ytdl-finalize' }, job), 0);
+    };
+    relay.abort = () => {
+      closed = true; queue.length = 0;
+      try { chrome.runtime.sendMessage({ t: 'ytdl-abort' }).catch(() => {}); } catch (e) {}
+    };
+    return relay;
   }
 
   const mo = new MutationObserver(() => ensureButton());

@@ -18,8 +18,8 @@ Quando termina, o vídeo volta de onde estava e aparece o aviso com o botão **A
 
 - Põe um botão **⬇ Baixar vídeo** no player do YouTube, nas páginas `youtube.com/watch`.
 - Um clique salva o vídeo inteiro em MP4 720p (H.264 + AAC), com a letra na tela, título e artista gravados no arquivo, na pasta `Downloads\Músicas para cantar`. No fim aparece o botão **Abrir pasta**, que mostra o arquivo.
-- Tudo acontece dentro do navegador: o vídeo que o player já está tocando é capturado e gravado num MP4 com ffmpeg.wasm, sem reconverter, então leva segundos e não minutos (uns 9 segundos para um vídeo de 2 min e meio). Sem serviço externo, sem yt-dlp, sem instalar mais nada.
-- Enquanto captura, a extensão pula a posição do player para o YouTube mandar os pedaços seguintes. Por isso o player fica coberto por uma cortina (o quadro em que o vídeo estava, escurecido, com o andamento em letras grandes) até a captura acabar; sem ela, a barra corria sozinha e parecia que o vídeo estava tocando. Cliques e teclas no player ficam bloqueados nesse tempo. Depois o vídeo volta para onde estava e continua tocando, se estava tocando.
+- Tudo acontece dentro do navegador: o vídeo que o player já está tocando é capturado e gravado num MP4 por um montador nosso (o ffmpeg.wasm só entra se o vídeo chegar em outro codec), sem reconverter, então leva segundos e não minutos (uns 9 segundos para um vídeo de 2 min e meio). Vídeos longos também funcionam: um show de duas horas é gravado aos pedaços, conforme chega, então não gasta mais memória que uma música, só espaço em disco. Sem serviço externo, sem yt-dlp, sem instalar mais nada.
+- Enquanto captura, a extensão pula a posição do player para o YouTube mandar os pedaços seguintes. Por isso o player fica coberto por uma cortina (o quadro em que o vídeo estava, escurecido, com o andamento em letras grandes: "Baixando…" e depois "Preparando o arquivo…") até o arquivo estar salvo; sem ela, a barra corria sozinha e parecia que o vídeo estava tocando. Cliques e teclas no player ficam bloqueados nesse tempo. Depois o vídeo volta para onde estava e continua tocando, se estava tocando, e um aviso pequeno oferece abrir a pasta.
 - A interface segue o idioma do Chrome: português do Brasil se o Chrome estiver em português; inglês nos demais casos.
 - Uma vez por dia confere no GitHub se há versão nova e avisa.
 
@@ -67,7 +67,7 @@ Se o atalho não abrir, ou reclamar do PowerShell (aconteceu com o atalho antigo
 ## Limites
 
 - Só em páginas `youtube.com/watch` (não em Shorts).
-- 720p, fixo: dá para ler a letra, e uma música de 4 minutos ocupa entre 30 e 80 MB.
+- 720p, fixo: dá para ler a letra, e uma música de 4 minutos ocupa entre 30 e 80 MB. Uma hora de vídeo vai de 150 MB (uma imagem parada com a letra) a uns 800 MB (um show filmado), então um show de 3 horas pode chegar a 2,5 GB. Enquanto um vídeo desses é salvo, o Chrome também guarda os pedaços capturados, em disco quando falta memória, então deixe livre no disco cerca do dobro do tamanho do arquivo.
 - Para gerar um arquivo que toque em qualquer lugar sem reconverter, a extensão diz ao YouTube que este navegador não decodifica AV1, VP9 nem Opus. Com a extensão instalada, o YouTube passa a tocar tudo em H.264: nenhuma diferença visível até 1080p, mas 1440p e 4K deixam de ser oferecidos.
 - Se mesmo assim um vídeo chegar em outro codec, a extensão reconverte para H.264 — funciona, mas leva muitos minutos.
 - Sem ícone na barra: tudo acontece dentro do player.
@@ -83,7 +83,7 @@ KMD_LANG=en-US npx playwright test    # ponta a ponta em inglês (padrão: pt-BR
 node tests/spike/codec-steering.mjs   # quais codecs o YouTube serve quando AV1/VP9/Opus somem
 ```
 
-Os testes de ponta a ponta carregam `extension/` sem compactação no Chromium do Playwright e salvam dois vídeos — um de 19 segundos e um de 2 min e meio em 720p — conferindo a cortina, o MP4 (H.264 + AAC, tamanho do quadro, duração, tags) e que o player volta para onde estava, tocando. Só rodam localmente — o YouTube bloqueia IPs de datacenter. As releases são publicadas pelo GitHub Actions quando uma tag `v*` é enviada. Decisões e estado: [`specs/PLAN.md`](specs/PLAN.md) (em inglês).
+Os testes de ponta a ponta carregam `extension/` sem compactação no Chromium do Playwright e salvam dois vídeos — um de 19 segundos e um de 2 min e meio em 720p — conferindo a cortina, o MP4 (H.264 + AAC, tamanho do quadro, duração, tags), que o próprio Chromium toca e avança no arquivo, e que o player volta para onde estava, tocando. Um terceiro teste, opcional (`KMD_LONG=1`), faz o mesmo com um vídeo de uma hora ou mais. Só rodam localmente — o YouTube bloqueia IPs de datacenter. As releases são publicadas pelo GitHub Actions quando uma tag `v*` é enviada. Decisões e estado: [`specs/PLAN.md`](specs/PLAN.md) (em inglês).
 
 ## Créditos e licença
 

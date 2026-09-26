@@ -58,6 +58,7 @@ async function scenario(video, testInfo) {
   });
   try {
     const page = context.pages()[0] ?? (await context.newPage());
+    page.on('console', (m) => { if (m.text().startsWith('[Karaoke downloader')) console.log('page:', m.text()); });
     const cdp = await context.newCDPSession(page);
     await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads, eventsEnabled: true });
 
@@ -100,7 +101,6 @@ async function scenario(video, testInfo) {
     });
     await btn.click();
     const toastText = page.locator('#ytdl-toast .ytdl-toast-txt');
-    await expect(toastText).toBeVisible({ timeout: 15_000 });
     await expect(btn).toBeDisabled();
     // the curtain: over the player while the capture hops through the video, with the
     // frozen frame and the progress in big type; a screenshot once it shows some progress
@@ -122,15 +122,16 @@ async function scenario(video, testInfo) {
     const seen = log.toasts.map((e) => e.text);
     const firstAt = (list, prefix) => list.find((e) => e.text.startsWith(prefix))?.at ?? null;
     const times = {
-      convertingAt: firstAt(log.toasts, msg('converting').split('…')[0]),
+      preparingAt: firstAt(log.curtain, msg('preparing').split('$1')[0]),
       doneAt: firstAt(log.toasts, msg('done')),
       curtain: log.curtain,
     };
     console.log('toast history:', JSON.stringify(log.toasts, null, 2));
-    expect(seen[seen.length - 1], 'success toast').toBe(msg('done'));
-    expect(seen.some((s) => s.includes(msg('keepTabOpen'))), '"keep tab open" shown while running').toBe(true);
+    // one display while it runs (the curtain); the toast only reports the result
+    expect(seen, 'the toast appears once, with the result').toEqual([msg('done')]);
     expect(log.curtain.length, 'the curtain showed the progress').toBeGreaterThan(0);
     expect(log.curtain[0].text.startsWith(msg('downloading').split('$1')[0]), 'curtain starts with "Downloading…"').toBe(true);
+    expect(times.preparingAt, 'curtain shows "Preparing the file…" after the capture').not.toBeNull();
     expect(log.curtain[log.curtain.length - 1].text, 'curtain reached 100%').toContain('100%');
     // the curtain is gone and the player is back where it was — playing, if it was playing
     await expect(curtain).toHaveCount(0);
@@ -175,12 +176,56 @@ async function scenario(video, testInfo) {
     expect(meta.format.duration).toBeGreaterThan(video.duration[0]);
     expect(meta.format.duration).toBeLessThan(video.duration[1]);
     expect(meta.common.title, 'title tag').toBe(video.title);
+
+    // 5. Chromium's own demuxer as the last judge: the saved file plays, reports the
+    //    duration and frame size, seeks to its middle and goes on from there
+    const play = await probePlayback(context, done.filename);
+    console.log('playback:', JSON.stringify(play));
+    fs.writeFileSync(testInfo.outputPath('playback.json'), JSON.stringify(play, null, 2));
+    expect(play.error, 'no media error').toBeNull();
+    expect(play.duration).toBeGreaterThan(video.duration[0]);
+    expect(play.duration).toBeLessThan(video.duration[1]);
+    expect([play.width, play.height], 'frame size while playing').toEqual(video.size);
+    expect(play.seekedTo, 'seek to the middle landed').toBeGreaterThan(play.duration / 2 - 1);
+    expect(play.advanced, 'plays on after the seek').toBe(true);
   } finally {
     await context.close();
   }
 }
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Open the saved file in a tab of the same browser (Chrome's own media page has a
+// <video>), read what it reports, seek to the middle and see playback advance.
+async function probePlayback(context, file) {
+  const page = await context.newPage();
+  try {
+    await page.goto('file:///' + file.replace(/\\/g, '/'));
+    return await page.evaluate(async () => {
+      const v = document.querySelector('video');
+      if (!v) return { error: 'no <video> on the media page' };
+      const wait = (ev, ms) => new Promise((r) => {
+        const t = setTimeout(() => r(false), ms);
+        v.addEventListener(ev, () => { clearTimeout(t); r(true); }, { once: true });
+      });
+      if (v.readyState < 1) await wait('loadedmetadata', 15000);
+      v.muted = true;
+      const out = { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: v.error ? v.error.message : null };
+      v.currentTime = v.duration / 2;
+      await wait('seeked', 15000);
+      out.seekedTo = v.currentTime;
+      await v.play().catch(() => {});
+      const t0 = v.currentTime;
+      await new Promise((r) => setTimeout(r, 1500));
+      out.advanced = v.currentTime > t0 + 0.5;
+      out.error = v.error ? v.error.message : out.error;
+      v.pause();
+      return out;
+    });
+  } finally {
+    await page.close();
+  }
+}
 
 async function toastBoxShot(page, testInfo) {
   await page.locator('#ytdl-toast').screenshot({ path: testInfo.outputPath('03-toast-done.png') });

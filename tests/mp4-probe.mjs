@@ -1,5 +1,7 @@
 // Minimal MP4 box walker for the tests: which codecs the file holds and the video
-// size, without pulling in ffprobe. Enough to assert "H.264 720p + AAC".
+// size, without pulling in ffprobe. Enough to assert "H.264 720p + AAC". Reads only
+// the top-level headers and the moov box, so a multi-gigabyte file is no trouble
+// (Node refuses to read more than 2 GiB into one Buffer).
 import fs from 'node:fs';
 
 const CONTAINERS = new Set(['moov', 'trak', 'mdia', 'minf', 'stbl']);
@@ -7,10 +9,28 @@ const VIDEO = new Set(['avc1', 'avc3', 'hvc1', 'hev1', 'vp09', 'av01']);
 const AUDIO = new Set(['mp4a', 'Opus', 'ac-3', 'ec-3', 'fLaC']);
 
 export function probeMp4(file) {
-  const buf = fs.readFileSync(file);
-  const out = { brand: null, video: null, width: null, height: null, audio: null };
-  walk(buf, 0, buf.length, out);
-  return out;
+  const fd = fs.openSync(file, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const readAt = (off, n) => { const b = Buffer.alloc(n); const got = fs.readSync(fd, b, 0, n, off); return b.subarray(0, got); };
+    const out = { brand: null, video: null, width: null, height: null, audio: null };
+    let off = 0;
+    while (off + 8 <= size) {
+      const h = readAt(off, 16);
+      let boxSize = h.readUInt32BE(0);
+      const type = h.toString('latin1', 4, 8);
+      let header = 8;
+      if (boxSize === 1) { boxSize = Number(h.readBigUInt64BE(8)); header = 16; } // largesize
+      else if (boxSize === 0) boxSize = size - off;                              // to the end
+      if (boxSize < header) break;
+      if (type === 'ftyp') out.brand = readAt(off + header, 4).toString('latin1');
+      else if (type === 'moov') { const buf = readAt(off, boxSize); walk(buf, header, buf.length, out); }
+      off += boxSize;
+    }
+    return out;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function walk(buf, start, end, out) {
@@ -24,8 +44,7 @@ function walk(buf, start, end, out) {
     if (size < header) break;
     const bodyStart = off + header;
     const bodyEnd = Math.min(end, off + size);
-    if (type === 'ftyp') out.brand = buf.toString('latin1', bodyStart, bodyStart + 4);
-    else if (CONTAINERS.has(type)) walk(buf, bodyStart, bodyEnd, out);
+    if (CONTAINERS.has(type)) walk(buf, bodyStart, bodyEnd, out);
     else if (type === 'stsd') walk(buf, bodyStart + 8, bodyEnd, out); // version+flags, entry_count
     else if (VIDEO.has(type)) {
       out.video = type;

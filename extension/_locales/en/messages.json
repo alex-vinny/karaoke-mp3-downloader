@@ -4,6 +4,7 @@
   "button": { "message": "⬇ Download video" },
   "downloading": { "message": "Downloading… $1%" },
   "converting": { "message": "Saving the video…" },
+  "preparing": { "message": "Preparing the file… $1%" },
   "keepTabOpen": { "message": "Don't close this tab" },
   "done": { "message": "Done! Saved in \"Songs to sing\"" },
   "openFolder": { "message": "Open folder" },
