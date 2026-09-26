@@ -1,6 +1,7 @@
 # Karaoke MP3 Downloader — Plano
 
-**Estado:** Fase 1 concluída (fork, rename, Actions, clone, commit inicial). Próxima: Fase 0 (baseline).
+**Estado:** Fase 0 em andamento — baseline Playwright verde (upstream intacto
+salva MP3); falta o teste no Chrome oficial do Vinicius (decide o §6). Próxima: Fase 2.
 **Atualizado em:** 2026-09-25.
 
 ## 1. Objetivo
@@ -107,10 +108,20 @@ clone e antes de qualquer mudança no código.
 Provar que o upstream **intacto** funciona hoje, para separar "quebrei" de "já
 não funcionava".
 
-- [ ] **Playwright (agente):** setup do §5 apontando para `extension/` sem
-      alteração; abrir o vídeo de teste, clicar em ▽ → áudio MP3; capturar o
-      download (técnica A, depois B). É o spike: sai daqui sabendo qual técnica
-      funciona e se o YouTube barra o Chromium automatizado.
+- [x] **Playwright (agente), 2026-09-25:** `tests/baseline-upstream.spec.mjs`
+      verde na primeira execução (15 s): o upstream intacto salva
+      "Me at the zoo.mp3", 457 KB, 19,03 s, MPEG-1 Layer 3, sem tag `title`.
+      Sem "not a bot" em perfil novo. **Achados:** (a) técnica A não preserva o
+      nome — o Playwright impõe `allowAndName` e o arquivo cai como
+      `<guid>.mp3` na pasta que pedimos; os eventos `Browser.download*` não
+      chegam à sessão CDP da página; (b) técnica B funciona:
+      `context.serviceWorkers()[0].evaluate(() => chrome.downloads.search({}))`
+      dá caminho real, `state: complete`, bytes e MIME; (c) o nome pedido pela
+      extensão só aparece no toast ("Готово: <nome>"). Para a Fase 4: validar
+      nome/subpasta pelo toast (ou um `data-filename` no toast) e testar
+      `page.on('download')` → `suggestedFilename()`; arquivo e duração pela
+      técnica B. O spec da baseline sai quando o `tests/karaoke-mp3.spec.mjs`
+      da Fase 4 entrar (o botão e o menu mudam na Fase 2).
 - [ ] **Chrome oficial (Vinicius, 5 min — pedir antes, §10):** carregar
       `extension/` sem compactação, baixar um MP3, fechar e reabrir o Chrome.
       Responde: o pop-up "Desativar extensões do modo de desenvolvedor" ainda
@@ -296,10 +307,11 @@ as duas pastas separadas por vírgula nos dois args.
    MP3 válido com duração 19 s ± 2 s e tag `title` (`music-metadata`).
 5. Screenshot + vídeo em `test-results/`.
 
-**Ponto a validar no spike (Fase 0):** o download é disparado pela extensão,
-não pela página, então o evento `download` do Playwright pode não pegá-lo.
-- Técnica A: `context.newCDPSession(page)` → `Browser.setDownloadBehavior({ behavior: 'allow', downloadPath: 'tests/.tmp' })` — preserva nome e subpasta.
-- Técnica B (fallback): consultar o service worker da extensão — `context.serviceWorkers()[0].evaluate(() => chrome.downloads.search({}))` — para obter caminho e estado.
+**Resultado do spike (Fase 0):** o download é disparado pela extensão, não pela
+página, e o Playwright impõe `Browser.setDownloadBehavior` = `allowAndName`.
+- Técnica A (`context.newCDPSession(page)` → `Browser.setDownloadBehavior({ behavior: 'allow', downloadPath })`): a **pasta** vale, o **nome** não — o arquivo sai como `<guid>.mp3`; nenhum evento `Browser.download*` chega à sessão da página.
+- Técnica B (`context.serviceWorkers()[0].evaluate(() => chrome.downloads.search({}))`): funciona — caminho real, `state`, `bytesReceived`, `mime`. É a fonte para "arquivo existe e está completo".
+- Nome e subpasta pedidos pela extensão: conferir pelo texto do toast (a extensão mostra o nome final) e testar `page.on('download')` → `suggestedFilename()` na Fase 4.
 
 **Cenários seguintes:** clique duplo (botão desabilitado); vídeo com título
 cheio de emoji (sanitização); sem rede (mensagem de erro).

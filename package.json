@@ -1,0 +1,16 @@
+{
+  "name": "karaoke-mp3-downloader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One button to download MP3 from YouTube. Made for my dad, an amateur karaoke singer.",
+  "license": "GPL-3.0",
+  "scripts": {
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test tests/unit/",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "music-metadata": "^11.16.1"
+  }
+}
