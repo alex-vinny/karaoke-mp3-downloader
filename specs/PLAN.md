@@ -1,12 +1,15 @@
 # Karaoke Downloader — Plan
 
-**Status:** v1.1.0 released 2026-09-26 — the button saves the **video** (720p MP4,
-H.264 + AAC, stream copy) instead of an MP3, because some of Dad's songs are in
-English and need the lyrics on screen (Phase 6). Both Playwright scenarios green in
-pt-BR and en-US. **Next: Dad's laptop — "Atualizar Baixador", close Chrome when
-asked, reopen (Vinicius).** Vinicius's own test install (v1.0.0) can be updated the
-same way. Open follow-ups: §5 follow-up scenarios (double click, emoji, offline)
-are not automated yet.
+**Status:** v1.2.0 tagged 2026-09-26 (Phase 7) after Vinicius's second visit: v1.1.0
+works on Dad's laptop, but the scrubber running during the capture alarmed him, and
+"Atualizar Baixador" ended in a Windows box saying powershell.exe cannot be found.
+Now a **curtain** (the frozen frame, dimmed, with the progress in big type) covers the
+player while the capture hops through the video, and the update shortcut runs a
+**local copy of the installer** through `update.cmd`, which fetches the latest
+installer first. **Next: on Dad's laptop, paste the install line into PowerShell once
+(the old shortcut there is the broken one; the new one replaces it) — Vinicius.**
+Open follow-ups: the cause of the powershell.exe box is unknown (the same .lnk works
+here); §5 follow-up scenarios (double click, emoji, offline) are not automated.
 **Updated:** 2026-09-26.
 
 ## 1. Goal
@@ -37,7 +40,8 @@ without configuring anything.
 | Songs folder | `Downloads\<songsFolder>`: "Músicas para cantar" (pt-BR) / "Songs to sing" (en). The extension reads `chrome.i18n.getMessage('songsFolder')`; the installer decides via `Get-UICulture` | Named after its purpose, localised like everything else. Small risk: Windows in one language and Chrome in another → two names; Chrome creates the sub-folder on first download anyway, only the desktop shortcut would point elsewhere |
 | Button | "⬇ Download video" / "⬇ Baixar vídeo": a big red pill fixed in the top-right corner of the player, outside YouTube's control bar. Was "Download MP3" until v1.0.0 | One action, no menu. Video only since 2026-09-26 (Phase 6): some songs are in English and need the lyrics on screen; Vinicius chose one button over two. In the control bar it was nearly invisible (the bar auto-hides and YouTube's `.ytp-button` fixes a 48px width); Vinicius asked for something his dad cannot miss |
 | Output | 720p `.mp4`, H.264 + AAC, title/artist atoms, saved as `<songsFolder>/<title>.mp4`. The hook tells the page that AV1, VP9, VP8 and Opus are undecodable, so YouTube streams avc1 + mp4a.40.2 and the file is a **stream copy** (seconds). Fallback if a video still is not H.264: upstream's libx264 re-encode (slow, logged) | The videos play on the laptop only, but H.264 + AAC plays on anything and costs nothing: the alternative was a single-thread re-encode of tens of minutes, or a VP9-in-MP4 that old players refuse. 720p reads fine and is half of 1080p. Verified with `tests/spike/codec-steering.mjs` on 2026-09-26. Side effect: that Chrome watches YouTube in H.264 (no 1440p/4K) |
-| Name | Only user-visible names changed with the video: extension "Karaoke Downloader" / "Baixar vídeo (karaokê)", READMEs, English shortcut "Update Karaoke Downloader". Repo `karaoke-mp3-downloader`, zip, `%LOCALAPPDATA%\KaraokeMP3` and the extension ID stay | Vinicius, 2026-09-26: zero risk for the update path already installed on Dad's laptop |
+$1| Curtain | While the capture runs, `#ytdl-curtain` inside `#movie_player` shows the frame the video was on (canvas snapshot, dimmed) with "Downloading… N%", a bar and "Don't close this tab"; clicks and the player's plain-key shortcuts are swallowed; lifted when the capture ends and the seek back has landed. The video comes back where it was, playing if it was playing | Phase 7 (2026-09-26): the hook hops the position forward to make YouTube fetch the next pieces, so the scrubber ran and the picture jumped for ~10 s — to Dad it looked like the video playing on its own. Vinicius chose the frozen frame over a plain dark curtain or just explaining it; a seek or a play mid-capture would corrupt the capture, hence the swallowing. Inside the player so it also shows in fullscreen (the page-level toast does not) |
+| Update shortcut | "Update Karaoke Downloader" / "Atualizar Baixador" → `%LOCALAPPDATA%\KaraokeMP3\update.cmd` → `powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1` (local copy next to it; `pwsh` as fallback; a plain line + pause if neither exists). The local copy downloads the latest `install.ps1` and hands over to it (`-NoSelfUpdate`) before doing anything | Phase 7: until v1.1.0 the .lnk ran `powershell.exe -Command "irm <url> \| iex"` itself. On Dad's Windows 11 that ended in "cannot find powershell.exe" (cause not found — the identical .lnk works on Vinicius's machine), and with `-Command` a failed download closed the window before anyone could read it. The .cmd resolves PowerShell through PATH at run time, avoids the `irm \| iex` download cradle inside a .lnk (a pattern antivirus heuristics flag) and keeps every error on screen; the self-update keeps the update logic itself current |
 | Toolbar icon | **None** (upstream has no `action`/popup and we will not add one) | Less diff; the folder opens from the desktop shortcut and from the toast's "Open folder" |
 | Distribution | GitHub Release (zip of `extension/`) + `install.ps1` at the repo root | Fixed URL `releases/latest/download/karaoke-mp3-downloader.zip` |
 | Update notice | `GET https://api.github.com/repos/alex-vinny/karaoke-mp3-downloader/releases/latest` → `tag_name`, once a day in `background.js` via `chrome.alarms` | The Release is what the installer downloads; reading the manifest on `main` would announce a version that cannot be downloaded yet. The API answers with CORS `*`; 60 req/h per IP is plenty |
@@ -253,6 +257,8 @@ Message contract between the pieces (new or changed):
   4. Desktop shortcuts (`WScript.Shell`), localised names (§9): songs folder →
      the folder; "Update Karaoke MP3" / "Atualizar Baixador" →
      `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm <url> | iex"`.
+     Since v1.2.0 (Phase 7) the update shortcut points at `update.cmd` next to a
+     local copy of this script instead (§2 "Update shortcut").
   5. First install: `Set-Clipboard` with the extension path, open
      `chrome://extensions` (`start chrome chrome://extensions`), show on screen:
      *Developer mode → Load unpacked → Ctrl+V → Enter*. **The only manual step,
@@ -336,9 +342,53 @@ user-visible names change (see §2 "Name").
 - [x] Tag `v1.1.0` → Release → check the workflow ran and the zip is there; update
       the repo About. Done 2026-09-26: workflow run succeeded, the Release carries
       `karaoke-mp3-downloader.zip` (10.3 MB), About updated.
-- [ ] Dad's laptop (Vinicius, 2 min): double-click "Atualizar Baixador" → close Chrome
+- [x] Dad's laptop (Vinicius, 2 min): double-click "Atualizar Baixador" → close Chrome
       when it asks → open Chrome again → try an English song. The daily check also
-      announces the update on YouTube within a day.
+      announces the update on YouTube within a day. Done 2026-09-26: v1.1.0 installed
+      and working. Two findings → Phase 7: the scrubber runs during the capture, and
+      "Atualizar Baixador" ends in a Windows box saying powershell.exe cannot be found
+      (Windows 11; the install line itself had worked in PowerShell).
+
+### Phase 7 — Curtain and a sturdier update shortcut (agent, 2026-09-26)
+
+Vinicius's decisions (asked, not assumed): **curtain with the frozen frame** (over a
+plain dark one, or leaving it and just explaining), and the video **comes back
+playing**, as before. On the shortcut he reported the Windows "cannot find
+powershell.exe" box and Windows 11; nothing more could be checked remotely.
+
+- [x] Curtain (`content_ui.js` / `content_ui.css`): see §2 "Curtain". Shown by
+      `startDownload` before the capture, mirrored from the progress messages, lifted
+      after the capture once the hook's seek back has landed (`pictureBack`, ≤ 0.8 s) —
+      the toast alone reports the (quick) saving that follows; hidden in `finally` on any
+      error. The hook is unchanged: the video was already paused and muted during the
+      capture; what Dad saw was the scrubber following the hops.
+- [x] Update shortcut (`install.ps1`): see §2 "Update shortcut". Step 0 (self-update)
+      runs only from a file (`$PSCommandPath`), never with `-Zip`; step 5 writes the
+      local copy (from disk, or downloaded again when run from memory via `irm | iex`),
+      `update.cmd` (ASCII only — batch files have no reliable encoding) and the
+      shortcuts; `New-Shortcut` now sets `Arguments` and `WorkingDirectory` every time
+      (CreateShortcut reopens an existing .lnk, so v1.1.0's arguments would have stayed).
+      Test seams: `KARAOKE_TEST_ROOT` (everything under one folder; Chrome, clipboard
+      and prompts skipped), `KARAOKE_ZIP_URL` / `KARAOKE_INSTALLER_URL` (`file://` works).
+- [x] Tests: `tests/unit/installer.test.mjs` (Windows only, ~12 s; skipped on CI's
+      Linux) runs the real `install.ps1` in a throwaway root: first install from a local
+      zip, then an update through `update.cmd` with a marked newer installer and a 9.9.9
+      zip — checks the local copy, the .cmd, the shortcuts' target/arguments, the
+      hand-over and the clean-up. The e2e spec now records every toast and curtain text
+      with an in-page MutationObserver (the 19-s video is done in ~3 s, faster than the
+      old polling loop could follow), asserts the curtain (canvas, texts, 100%) and that
+      the player is back near where it was and playing. Green in pt-BR and en-US on
+      2026-09-26: zoo 2.8 s, Caminandes 12.5 s click → "Done" (the capture itself
+      varies with YouTube's delivery: 8–12 s seen for the same file).
+- [x] Docs: READMEs (curtain paragraph, update section with the fallback line,
+      `npm run test:unit`), `docs/*/downloading.png` is now the curtain, this plan.
+      Manifest 1.2.0.
+- [ ] Tag `v1.2.0` → Release → check the workflow ran and the zip is there.
+- [ ] Dad's laptop (Vinicius): the old shortcut there is the one that fails, so this
+      once paste the install line into PowerShell (Start → "Windows PowerShell" → paste →
+      Enter; close Chrome when it asks). From then on "Atualizar Baixador" runs
+      `update.cmd`. If PowerShell itself does not open on that laptop (Win+R →
+      `powershell`), that is the finding to bring back.
 
 ## 5. Playwright tests
 
@@ -349,8 +399,9 @@ user-visible names change (see §2 "Name").
 with devDependencies `@playwright/test` and `music-metadata` (tags and duration of
 the saved file), `tests/mp4-probe.mjs` (codecs and frame size, no ffprobe),
 `npx playwright install chromium`, `playwright.config.mjs`,
-`tests/karaoke-video.spec.mjs`, `tests/unit/*.test.mjs`; `npm test` runs
-`node --test` and then Playwright. Debugging tip (Phase 6): a throwaway script that
+`tests/karaoke-video.spec.mjs`, `tests/unit/*.test.mjs` (`installer.test.mjs`
+runs the real `install.ps1` in a throwaway folder, Windows only — Phase 7); `npm test`
+runs `node --test` and then Playwright. Debugging tip (Phase 6): a throwaway script that
 launches the same persistent context, listens to `page.on('pageerror')` and
 `page.on('console')` and dumps the state of `#movie_player` / `#ytdl-btn` finds a
 hook crash in one run; it must live inside the repo (e.g. `tests/.tmp/`, git-ignored)
@@ -386,7 +437,8 @@ folders, comma-separated, in the two args.
    if it appears.
 2. Wait for the `[data-testid="karaoke-download"]` button with the text of
    the test project's language.
-3. Click; wait for the "done" toast (3-min timeout).
+3. Click; the curtain (frozen frame, "Downloading… N%") covers the player; wait for
+   the "done" toast (3-min timeout); the player is back where it was, playing.
 4. Check the file: in the language's songs folder, sanitised name, an `.mp4`
    with avc1 + mp4a (`mp4-probe`), 320×240, duration 19 s ± 2 s and a `title` tag
    (`music-metadata`). Until v1.0.0 this was an MP3.
@@ -446,6 +498,10 @@ on managed machines). Options, by effort:
   the file falls back to a libx264 re-encode — correct but slow (tens of minutes;
   symptom: "Saving the video…" with a slowly moving percentage). Check with
   `node tests/spike/codec-steering.mjs`.
+- **The update shortcut fails on Dad's laptop** (v1.1.0: a Windows box "cannot find
+  powershell.exe", cause unknown). Since v1.2.0 the shortcut runs `update.cmd` → the
+  local `install.ps1`, and any error stays on screen. Fallback for Dad: paste the
+  install line into PowerShell again — it redoes everything, shortcut included.
 - Closing the tab mid-way aborts.
 - Chrome 137+: no command-line shortcut; always "Load unpacked".
 
@@ -488,7 +544,7 @@ install-free): paste link → MP3. More robust and needs no ad blocker; worse UX
 - Claude Code's auto mode blocks the vault: it needs `vault unlock` (Vinicius, in
   his terminal) and the rule in `.claude/settings.local.json` (git-ignored, this
   machine only).
-- Order: Phase 1 → 0 → 2 → 3 → 3½ → 4 → tag `v1.0.0` → 5 → 6 → tag `v1.1.0`.
+- Order: Phase 1 → 0 → 2 → 3 → 3½ → 4 → tag `v1.0.0` → 5 → 6 → tag `v1.1.0` → 7 → tag `v1.2.0`.
 - Write scope: this folder only. Do not touch Vinicius's Chrome without asking.
 - Upstream files are CRLF on disk (Windows checkout; LF in the repo). Scripts that
   edit them must normalise line endings, or multi-line anchors never match.

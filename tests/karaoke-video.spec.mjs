@@ -5,7 +5,7 @@
 // strings are read from the extension's own _locales, so the same spec checks both
 // languages: `KMD_LANG=en-US npx playwright test`.
 //
-//   1. "Me at the zoo" (19 s, 240p): the UI, the toasts, the file and its tags — fast.
+//   1. "Me at the zoo" (19 s, 240p): the UI, the curtain, the toasts, the file and its tags — fast.
 //   2. "Caminandes 3: Llamigos" (2:30, 720p, CC-BY Blender): the real 720p path, timed.
 import { test, expect, chromium } from '@playwright/test';
 import { parseFile } from 'music-metadata';
@@ -79,41 +79,68 @@ async function scenario(video, testInfo) {
     await page.waitForTimeout(300);
     await page.locator('#movie_player').screenshot({ path: testInfo.outputPath('01-button.png') });
 
-    // 2. one click; a second click while busy is ignored (button disabled)
-    const t0 = Date.now();
-    const times = {};
+    // 2. one click; a second click while busy is ignored (button disabled). Every text the
+    //    toast and the curtain show is recorded from inside the page: the short video is
+    //    done in ~3 s, faster than a polling loop from the test can follow.
+    const playerState = () => page.evaluate(() => {
+      const v = document.querySelector('#movie_player video');
+      return { time: v?.currentTime ?? 0, paused: v?.paused ?? true, ended: v?.ended ?? false };
+    });
+    const before = await playerState();
+    await page.evaluate(() => {
+      const log = (window.__kmd = { toasts: [], curtain: [], t0: performance.now() });
+      const last = { toast: null, curtain: null };
+      new MutationObserver(() => {
+        const at = (performance.now() - log.t0) / 1000;
+        const t = document.querySelector('#ytdl-toast .ytdl-toast-txt')?.textContent || null;
+        if (t && t !== last.toast) { last.toast = t; log.toasts.push({ at, text: t }); }
+        const c = document.querySelector('#ytdl-curtain .ytdl-curtain-txt')?.textContent || null;
+        if (c && c !== last.curtain) { last.curtain = c; log.curtain.push({ at, text: c }); }
+      }).observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+    });
     await btn.click();
     const toastText = page.locator('#ytdl-toast .ytdl-toast-txt');
     await expect(toastText).toBeVisible({ timeout: 15_000 });
     await expect(btn).toBeDisabled();
-    const seen = [];
-    const toastBox = page.locator('#ytdl-toast');
-    const shots = { downloading: false, converting: false };
+    // the curtain: over the player while the capture hops through the video, with the
+    // frozen frame and the progress in big type; a screenshot once it shows some progress
+    // (evidence for the README) — unless the short video is already through
+    const curtain = page.getByTestId('karaoke-curtain');
+    await expect(curtain).toBeVisible();
+    await expect(curtain.locator('canvas'), 'the frozen frame').toHaveCount(1);
+    await expect(curtain.locator('.ytdl-curtain-sub')).toHaveText(msg('keepTabOpen'));
+    const curtainNow = async () => (await curtain.count()) ? curtain.locator('.ytdl-curtain-txt').textContent() : 'gone';
+    await expect.poll(curtainNow, { timeout: 30_000 }).toMatch(/gone|([2-9]\d|100)%/).catch(() => {});
+    if (await curtain.count()) await page.locator('#movie_player').screenshot({ path: testInfo.outputPath('02-curtain.png') }).catch(() => {});
+
     await expect
-      .poll(async () => {
-        const txt = (await toastText.textContent()) ?? '';
-        if (seen[seen.length - 1] !== txt) seen.push(txt);
-        // evidence for the README: the toast while downloading and while saving
-        for (const phase of ['downloading', 'converting']) {
-          if (!shots[phase] && txt.startsWith(msg(phase).split('$1')[0].split('…')[0])) {
-            shots[phase] = true;
-            times[phase + 'At'] = (Date.now() - t0) / 1000;
-            await toastBox.screenshot({ path: testInfo.outputPath(`02-toast-${phase}.png`) }).catch(() => {});
-          }
-        }
-        return txt;
-      }, { message: 'toast reaches done or an error', timeout: 8 * 60_000, intervals: [500] })
+      .poll(() => toastText.textContent(), { message: 'toast reaches done or an error', timeout: 8 * 60_000, intervals: [500] })
       .toMatch(new RegExp('^(' + [msg('done'), msg('adDetected'), msg('error').split(' (')[0]].map(escapeRe).join('|') + ')'));
-    times.doneAt = (Date.now() - t0) / 1000;
     await page.waitForTimeout(300);
-    await toastBox.screenshot({ path: testInfo.outputPath('03-toast-done.png') });
-    await page.screenshot({ path: testInfo.outputPath('04-page-done.png') });
-    console.log('toast history:', JSON.stringify(seen, null, 2));
+    await toastBoxShot(page, testInfo);
+    const log = await page.evaluate(() => window.__kmd);
+    const seen = log.toasts.map((e) => e.text);
+    const firstAt = (list, prefix) => list.find((e) => e.text.startsWith(prefix))?.at ?? null;
+    const times = {
+      convertingAt: firstAt(log.toasts, msg('converting').split('…')[0]),
+      doneAt: firstAt(log.toasts, msg('done')),
+      curtain: log.curtain,
+    };
+    console.log('toast history:', JSON.stringify(log.toasts, null, 2));
     expect(seen[seen.length - 1], 'success toast').toBe(msg('done'));
     expect(seen.some((s) => s.includes(msg('keepTabOpen'))), '"keep tab open" shown while running').toBe(true);
+    expect(log.curtain.length, 'the curtain showed the progress').toBeGreaterThan(0);
+    expect(log.curtain[0].text.startsWith(msg('downloading').split('$1')[0]), 'curtain starts with "Downloading…"').toBe(true);
+    expect(log.curtain[log.curtain.length - 1].text, 'curtain reached 100%').toContain('100%');
+    // the curtain is gone and the player is back where it was — playing, if it was playing
+    await expect(curtain).toHaveCount(0);
+    const after = await playerState();
+    expect(after.time, 'position restored').toBeGreaterThanOrEqual(before.time - 1);
+    expect(after.time, 'position restored').toBeLessThan(before.time + times.doneAt + 2);
+    if (!before.paused && !after.ended) expect(after.paused, 'playing again after the download').toBe(false);
 
     // 3. what the extension asked Chrome to save, and the "Open folder" action
-    const requested = await toastBox.getAttribute('data-filename');
+    const requested = await page.locator('#ytdl-toast').getAttribute('data-filename');
     expect(requested).toBe(`${msg('songsFolder')}/${safeFilename(video.title)}.mp4`);
     const openFolder = page.getByTestId('karaoke-open-folder');
     await expect(openFolder).toBeVisible();
@@ -135,7 +162,7 @@ async function scenario(video, testInfo) {
     const meta = await parseFile(done.filename);
     const summary = {
       lang: LANG, video: video.id, requested, savedAs: done.filename, bytes: fs.statSync(done.filename).size,
-      seconds: times, boxes, container: meta.format.container, codec: meta.format.codec, duration: meta.format.duration,
+      seconds: times, player: { before, after }, boxes, container: meta.format.container, codec: meta.format.codec, duration: meta.format.duration,
       title: meta.common.title ?? null, artist: meta.common.artist ?? null, toasts: seen,
     };
     console.log('result:', JSON.stringify(summary, null, 2));
@@ -154,6 +181,11 @@ async function scenario(video, testInfo) {
 }
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+async function toastBoxShot(page, testInfo) {
+  await page.locator('#ytdl-toast').screenshot({ path: testInfo.outputPath('03-toast-done.png') });
+  await page.screenshot({ path: testInfo.outputPath('04-page-done.png') });
+}
 
 // The extension's background worker (YouTube registers its own service worker too).
 async function extensionWorker(context) {

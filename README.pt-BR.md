@@ -6,15 +6,20 @@ Fork do [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader
 
 ![O botão Baixar vídeo no canto superior direito do player do YouTube](docs/pt-BR/button.png)
 
-| Enquanto trabalha | Quando termina |
-|---|---|
-| ![Baixando… — Não feche esta aba](docs/pt-BR/downloading.png) | ![Pronto! Está em "Músicas para cantar" — Abrir pasta](docs/pt-BR/done.png) |
+Enquanto baixa (uns 10 segundos), o player fica coberto pelo quadro em que o vídeo estava, com o andamento em letras grandes:
+
+![Cortina sobre o player: Baixando… 42% — Não feche esta aba](docs/pt-BR/downloading.png)
+
+Quando termina, o vídeo volta de onde estava e aparece o aviso com o botão **Abrir pasta**:
+
+![Pronto! Está em "Músicas para cantar" — Abrir pasta](docs/pt-BR/done.png)
 
 ## O que faz
 
 - Põe um botão **⬇ Baixar vídeo** no player do YouTube, nas páginas `youtube.com/watch`.
 - Um clique salva o vídeo inteiro em MP4 720p (H.264 + AAC), com a letra na tela, título e artista gravados no arquivo, na pasta `Downloads\Músicas para cantar`. No fim aparece o botão **Abrir pasta**, que mostra o arquivo.
 - Tudo acontece dentro do navegador: o vídeo que o player já está tocando é capturado e gravado num MP4 com ffmpeg.wasm, sem reconverter, então leva segundos e não minutos (uns 9 segundos para um vídeo de 2 min e meio). Sem serviço externo, sem yt-dlp, sem instalar mais nada.
+- Enquanto captura, a extensão pula a posição do player para o YouTube mandar os pedaços seguintes. Por isso o player fica coberto por uma cortina (o quadro em que o vídeo estava, escurecido, com o andamento em letras grandes) até a captura acabar; sem ela, a barra corria sozinha e parecia que o vídeo estava tocando. Cliques e teclas no player ficam bloqueados nesse tempo. Depois o vídeo volta para onde estava e continua tocando, se estava tocando.
 - A interface segue o idioma do Chrome: português do Brasil se o Chrome estiver em português; inglês nos demais casos.
 - Uma vez por dia confere no GitHub se há versão nova e avisa.
 
@@ -45,7 +50,9 @@ Instalação manual: baixe `karaoke-mp3-downloader.zip` da [última release](htt
 
 ## Atualizar
 
-Dê dois cliques em **Atualizar Baixador** na área de trabalho (roda a mesma linha do instalador), feche o Chrome quando ele pedir e abra o Chrome de novo. Quando existe versão nova, a extensão mostra "Tem atualização" no YouTube uma vez por dia.
+Dê dois cliques em **Atualizar Baixador** na área de trabalho, feche o Chrome quando ele pedir e abra o Chrome de novo. O atalho roda uma cópia local do instalador (`%LOCALAPPDATA%\KaraokeMP3\update.cmd`), que antes de tudo busca a versão mais nova do próprio instalador no GitHub. Quando existe versão nova, a extensão mostra "Tem atualização" no YouTube uma vez por dia.
+
+Se o atalho não abrir, ou reclamar do PowerShell (aconteceu com o atalho antigo, da versão 1.1.0), cole a linha de instalação de novo no PowerShell: ela refaz a instalação e o atalho.
 
 ## Se parar de funcionar
 
@@ -71,11 +78,12 @@ Dê dois cliques em **Atualizar Baixador** na área de trabalho (roda a mesma li
 npm install
 npx playwright install chromium
 npm test                              # testes unitários (node --test) + ponta a ponta (Playwright, com janela)
+npm run test:unit                     # só os unitários; no Windows, também instala e atualiza com o install.ps1 numa pasta temporária
 KMD_LANG=en-US npx playwright test    # ponta a ponta em inglês (padrão: pt-BR)
 node tests/spike/codec-steering.mjs   # quais codecs o YouTube serve quando AV1/VP9/Opus somem
 ```
 
-Os testes de ponta a ponta carregam `extension/` sem compactação no Chromium do Playwright e salvam dois vídeos — um de 19 segundos e um de 2 min e meio em 720p — conferindo o MP4 (H.264 + AAC, tamanho do quadro, duração, tags). Só rodam localmente — o YouTube bloqueia IPs de datacenter. As releases são publicadas pelo GitHub Actions quando uma tag `v*` é enviada. Decisões e estado: [`specs/PLAN.md`](specs/PLAN.md) (em inglês).
+Os testes de ponta a ponta carregam `extension/` sem compactação no Chromium do Playwright e salvam dois vídeos — um de 19 segundos e um de 2 min e meio em 720p — conferindo a cortina, o MP4 (H.264 + AAC, tamanho do quadro, duração, tags) e que o player volta para onde estava, tocando. Só rodam localmente — o YouTube bloqueia IPs de datacenter. As releases são publicadas pelo GitHub Actions quando uma tag `v*` é enviada. Decisões e estado: [`specs/PLAN.md`](specs/PLAN.md) (em inglês).
 
 ## Créditos e licença
 

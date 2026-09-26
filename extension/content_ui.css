@@ -147,3 +147,51 @@ ytd-miniplayer .ytdl-btn { display: none !important; }
 }
 #ytdl-toast .ytdl-toast-btn:hover { background: #ff6b63; }
 #ytdl-toast.has-action .ytdl-toast-btn { display: inline-block; }
+
+/* Curtain over the player while the capture hops through the video (content_ui.js):
+   the frozen frame, dimmed, and the progress in big type. Above the button (70) and
+   the player's own chrome; inside #movie_player so it shows in fullscreen too. */
+#ytdl-curtain {
+  position: absolute !important;
+  inset: 0;
+  z-index: 80;
+  display: flex; align-items: center; justify-content: center;
+  background: #000;
+  color: #fff;
+  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  text-align: center;
+  cursor: wait;
+  user-select: none;
+}
+#ytdl-curtain canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  filter: brightness(.4);
+}
+#ytdl-curtain .ytdl-curtain-card { position: relative; max-width: 86%; padding: 2% 4%; }
+#ytdl-curtain .ytdl-curtain-txt {
+  font-size: clamp(20px, 3.2vw, 56px);
+  font-weight: 700;
+  line-height: 1.2;
+  text-shadow: 0 2px 10px rgba(0,0,0,.9);
+}
+#ytdl-curtain .ytdl-curtain-bar {
+  width: min(60%, 520px);
+  height: clamp(6px, .7vw, 12px);
+  margin: 18px auto 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.25);
+  overflow: hidden;
+}
+#ytdl-curtain .ytdl-curtain-bar i {
+  display: block; height: 100%; width: 0%;
+  background: #ff4e45;
+  transition: width .25s;
+}
+#ytdl-curtain .ytdl-curtain-sub {
+  margin-top: 16px;
+  font-size: clamp(14px, 1.5vw, 26px);
+  opacity: .9;
+  text-shadow: 0 1px 6px rgba(0,0,0,.9);
+}

@@ -6,15 +6,20 @@ A fork of [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Download
 
 ![The Download video button in the top-right corner of the YouTube player](docs/en/button.png)
 
-| While it works | When it is done |
-|---|---|
-| ![Downloading… — Don't close this tab](docs/en/downloading.png) | ![Done! Saved in "Songs to sing" — Open folder](docs/en/done.png) |
+While it downloads (about 10 seconds) the player is covered by the frame the video was on, with the progress in big type:
+
+![Curtain over the player: Downloading… 42% — Don't close this tab](docs/en/downloading.png)
+
+When it is done the video comes back where it was, and the notice offers **Open folder**:
+
+![Done! Saved in "Songs to sing" — Open folder](docs/en/done.png)
 
 ## What it does
 
 - Adds a **⬇ Download video** button to the YouTube player, on `youtube.com/watch` pages.
 - One click saves the whole video as a 720p MP4 (H.264 + AAC), lyrics on screen included, with title and artist tags, into `Downloads\Songs to sing` (`Downloads\Músicas para cantar` when Chrome is in Portuguese). An **Open folder** button shows the file when it is done.
 - Everything happens inside the browser: the video the player is already streaming is captured and written to an MP4 with ffmpeg.wasm, without re-encoding, so it takes seconds rather than minutes (about 9 seconds for a 2½-minute video). No external service, no yt-dlp, nothing else to install.
+- While it captures, the extension hops the player's position forward so that YouTube sends the next pieces. So the player is covered by a curtain (the frame the video was on, dimmed, with the progress in big type) until the capture ends; without it the scrubber ran on its own and the video seemed to be playing. Clicks and keys on the player are blocked meanwhile. Afterwards the video comes back where it was and keeps playing, if it was playing.
 - The interface follows Chrome's language: English by default, Brazilian Portuguese automatically.
 - Once a day it checks GitHub for a newer release and says so.
 
@@ -45,7 +50,9 @@ Manual install: download `karaoke-mp3-downloader.zip` from the [latest release](
 
 ## Update
 
-Double-click **Update Karaoke Downloader** on the desktop (it runs the same line as the installer), close Chrome when it asks, then open Chrome again. When a newer release exists, the extension shows "Update available" on YouTube once a day.
+Double-click **Update Karaoke Downloader** on the desktop, close Chrome when it asks, then open Chrome again. The shortcut runs a local copy of the installer (`%LOCALAPPDATA%\KaraokeMP3\update.cmd`), which first fetches the latest installer itself from GitHub. When a newer release exists, the extension shows "Update available" on YouTube once a day.
+
+If the shortcut does not open, or complains about PowerShell (it happened with the old shortcut, from v1.1.0), paste the install line into PowerShell again: it redoes the installation and the shortcut.
 
 ## If it stops working
 
@@ -71,11 +78,12 @@ Double-click **Update Karaoke Downloader** on the desktop (it runs the same line
 npm install
 npx playwright install chromium
 npm test                              # unit tests (node --test) + end-to-end (Playwright, headed)
+npm run test:unit                     # unit tests only; on Windows this also installs and updates with install.ps1 in a temporary folder
 KMD_LANG=en-US npx playwright test    # end-to-end in English (default: pt-BR)
 node tests/spike/codec-steering.mjs   # which codecs YouTube serves once AV1/VP9/Opus are hidden
 ```
 
-The end-to-end tests load `extension/` unpacked into Playwright's Chromium and save two videos — a 19-second one and a 2½-minute one at 720p — checking the MP4 (H.264 + AAC, frame size, duration, tags). They run locally only — YouTube blocks datacenter IPs. Releases are published by GitHub Actions on a `v*` tag. Decisions and status: [`specs/PLAN.md`](specs/PLAN.md).
+The end-to-end tests load `extension/` unpacked into Playwright's Chromium and save two videos — a 19-second one and a 2½-minute one at 720p — checking the curtain, the MP4 (H.264 + AAC, frame size, duration, tags) and that the player comes back where it was, playing. They run locally only — YouTube blocks datacenter IPs. Releases are published by GitHub Actions on a `v*` tag. Decisions and status: [`specs/PLAN.md`](specs/PLAN.md).
 
 ## Credits and licence
 

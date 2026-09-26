@@ -1,6 +1,7 @@
 // content_ui.js — isolated world. Draws the one "Download video" button in the
 // YouTube player, drives the MAIN-world capture hook over window.postMessage,
 // then streams the captured tracks to the offscreen ffmpeg worker for muxing.
+// While the hook captures, a curtain covers the player (see "curtain" below).
 // Upstream's menu (quality, MP3, subtitles, format toggle) is kept below as
 // openMenu() but is no longer reachable from the UI; the MP3 path still works.
 (function () {
@@ -283,6 +284,75 @@
     };
   }
 
+  // ---- curtain -------------------------------------------------------------
+  // The capture hops the player's position forward so that YouTube fetches the next
+  // pieces (content_hook.js): for ~10 s the scrubber runs and the picture jumps, which
+  // looked to Dad like the video playing on its own. So the player is covered while it
+  // happens: the frame he was looking at, dimmed, with the progress in big type. It
+  // lives inside #movie_player, so it also shows in fullscreen (the toast, fixed to the
+  // page, does not), and it swallows clicks and the player's keyboard shortcuts — a
+  // seek or a play mid-capture would corrupt the capture. The video itself is already
+  // paused and muted by the hook; it comes back where it was, playing if it was playing.
+  let curtainEl = null;
+  const CURTAIN_EVENTS = ['click', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'contextmenu', 'wheel'];
+  function swallow(e) { e.stopPropagation(); if (e.type === 'contextmenu' || e.type === 'dblclick') e.preventDefault(); }
+  // Plain keys are the player's shortcuts (space, k, j/l, arrows, f, m…). Typing in a
+  // field and Ctrl/Alt/Win combos are left alone.
+  function swallowKey(e) {
+    const tg = e.target;
+    if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return;
+    if (!e.ctrlKey && !e.altKey && !e.metaKey) e.stopPropagation();
+  }
+  function showCurtain() {
+    hideCurtain();
+    const player = document.getElementById('movie_player');
+    if (!player) return;
+    const box = el('div'); box.id = 'ytdl-curtain';
+    box.setAttribute('data-testid', 'karaoke-curtain');
+    // freeze the current frame (drawing an MSE-fed <video> onto a canvas is allowed)
+    try {
+      const v = player.querySelector('video');
+      if (v && v.videoWidth && v.videoHeight) {
+        const c = document.createElement('canvas');
+        c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        box.appendChild(c);
+      }
+    } catch (e) { /* no frame: the dark background will do */ }
+    const card = el('div', 'ytdl-curtain-card');
+    card.appendChild(el('div', 'ytdl-curtain-txt'));
+    const bar = el('div', 'ytdl-curtain-bar'); bar.appendChild(el('i')); card.appendChild(bar);
+    card.appendChild(el('div', 'ytdl-curtain-sub', t('keepTabOpen')));
+    box.appendChild(card);
+    CURTAIN_EVENTS.forEach((type) => box.addEventListener(type, swallow));
+    ['keydown', 'keyup', 'keypress'].forEach((type) => window.addEventListener(type, swallowKey, true));
+    player.appendChild(box);
+    curtainEl = box;
+  }
+  function setCurtain(txt, pct) {
+    if (!curtainEl) return;
+    curtainEl.querySelector('.ytdl-curtain-txt').textContent = txt;
+    curtainEl.querySelector('.ytdl-curtain-bar i').style.width = Math.round((pct || 0) * 100) + '%';
+  }
+  function hideCurtain() {
+    ['keydown', 'keyup', 'keypress'].forEach((type) => window.removeEventListener(type, swallowKey, true));
+    if (curtainEl) { curtainEl.remove(); curtainEl = null; }
+  }
+  // The hook puts the player back where it was as the capture ends; give that seek a
+  // moment to land (bounded) so the last hop never shows when the curtain lifts.
+  function pictureBack(maxMs) {
+    return new Promise((resolve) => {
+      const v = document.querySelector('#movie_player video');
+      const t0 = Date.now();
+      const tick = () => {
+        const waited = Date.now() - t0;
+        if (!v || waited >= maxMs || (waited >= 150 && !v.seeking)) return resolve();
+        setTimeout(tick, 50);
+      };
+      tick();
+    });
+  }
+
   // Short code + version on screen (easy to read out over the phone), full error
   // in the console. E1 capture, E2 convert/save, E4 an ad interrupted the capture.
   function fail(code, err) {
@@ -342,6 +412,8 @@
     refreshButtonState();
     tt.action(null);
     tt.set(t('downloading', [0]) + ' — ' + t('keepTabOpen'), 0.02);
+    showCurtain();
+    setCurtain(t('downloading', [0]), 0.02);
 
     const { transcode = false } = await chrome.storage.local.get('transcode');
 
@@ -356,10 +428,15 @@
       try {
         result = await download({ height, format, start, end }, (d) => {
           tt.set(t('downloading', [Math.round(d.progress * 100)]) + ' — ' + t('keepTabOpen'), d.progress * 0.5);
+          setCurtain(t('downloading', [Math.round(d.progress * 100)]), d.progress);
         });
       } catch (err) {
         throw Object.assign(err, { code: cancelledByAd ? 'E4' : 'E1' });
       }
+      // the hopping is over and the player is back where it was: lift the curtain, the
+      // toast alone reports the (quick) saving that follows
+      await pictureBack(800);
+      hideCurtain();
 
       const ext = isMp3 ? '.mp3' : '.mp4';
       // Sub-folder of Downloads (chrome.downloads accepts a relative path) + the one
@@ -428,6 +505,7 @@
     } catch (err) {
       fail((err && err.code) || (cancelledByAd ? 'E4' : 'E2'), err);
     } finally {
+      hideCurtain();
       busy = false;
       refreshButtonState();
       chrome.runtime.onMessage.removeListener(onProg);
