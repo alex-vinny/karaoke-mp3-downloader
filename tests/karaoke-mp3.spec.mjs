@@ -55,7 +55,11 @@ test(`one click saves "${VIDEO_TITLE}" as a tagged MP3 (${LANG})`, async ({}, te
     await expect(btn).toHaveText(msg('button'));
     await expect(btn).toBeEnabled();
     await ensurePlaying(page);
-    await page.screenshot({ path: testInfo.outputPath('01-button.png') });
+    // the control bar auto-hides; pin it for the screenshot (evidence for the README)
+    await btn.hover();
+    await page.evaluate(() => document.getElementById('movie_player')?.classList.remove('ytp-autohide'));
+    await page.waitForTimeout(300);
+    await page.locator('#movie_player').screenshot({ path: testInfo.outputPath('01-button.png') });
 
     // 2. one click; a second click while busy is ignored (button disabled)
     await btn.click();

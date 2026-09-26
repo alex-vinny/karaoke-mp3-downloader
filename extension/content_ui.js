@@ -83,11 +83,13 @@
   function makeButton() {
     const btn = document.createElement('button');
     btn.id = BTN_ID;
-    btn.className = 'ytp-button ytdl-btn';
+    btn.className = 'ytdl-btn';
     btn.title = t('extName');
     btn.textContent = t('button');
     btn.setAttribute('data-testid', 'karaoke-mp3-download');
     btn.addEventListener('click', onClick);
+    // a double click on the player toggles fullscreen; keep ours to ourselves
+    btn.addEventListener('dblclick', (e) => e.stopPropagation());
     return btn;
   }
   function itemLabel(item, main, ext) {
@@ -100,10 +102,11 @@
     watchAds();
     const existing = document.getElementById(BTN_ID);
     if (existing) { refreshButtonState(existing); return; }
-    const controls = document.querySelector('.ytp-right-controls');
-    if (!controls) return;
+    // top-right corner of the player itself (position: relative), not the control bar
+    const player = document.getElementById('movie_player');
+    if (!player) return;
     const btn = makeButton();
-    controls.insertBefore(btn, controls.firstChild);
+    player.appendChild(btn);
     refreshButtonState(btn);
   }
 

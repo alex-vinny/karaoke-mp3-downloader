@@ -1,17 +1,28 @@
-/* Download button lives inside the player's right-controls, matching yt style */
+/* One big, always-visible pill in the top-right corner of the player. It lives
+   outside YouTube's control bar on purpose: the bar auto-hides, and its .ytp-button
+   rule fixes the width so the text got clipped and Dad could not find the button. */
 .ytdl-btn {
-  position: relative;
-  width: auto; height: 100%;
-  padding: 0 14px;
-  vertical-align: top;
-  opacity: .95;
+  position: absolute !important;
+  top: 12px; right: 12px;
+  z-index: 70;
+  display: inline-block !important;
+  width: auto !important; height: auto !important;
+  margin: 0; padding: 10px 18px !important;
+  border: 0; border-radius: 999px;
+  background: #ff4e45;
   color: #fff;
-  font: 600 15px/1 "YouTube Sans", Roboto, Arial, sans-serif;
-  white-space: nowrap;
+  font: 700 17px/1.1 "YouTube Sans", Roboto, Arial, sans-serif;
   letter-spacing: .01em;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  cursor: pointer;
+  opacity: 1 !important;
+  transition: background .15s, transform .1s;
 }
-.ytdl-btn:hover { opacity: 1; }
-.ytdl-btn[disabled] { opacity: .45; cursor: default; }
+.ytdl-btn:hover { background: #ff6b63; transform: translateY(-1px); }
+.ytdl-btn[disabled] { background: #6b6b6b; color: #ddd; box-shadow: none; transform: none; cursor: default; }
+.ytp-fullscreen .ytdl-btn { top: 20px; right: 20px; font-size: 21px; padding: 13px 24px !important; }
+ytd-miniplayer .ytdl-btn { display: none !important; }
 
 /* fragment (start — end) row */
 .ytdl-frag {
