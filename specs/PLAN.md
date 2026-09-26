@@ -1,6 +1,6 @@
 # Karaoke Downloader — Plan
 
-**Status:** v1.2.0 tagged 2026-09-26 (Phase 7) after Vinicius's second visit: v1.1.0
+**Status:** v1.2.0 released 2026-09-26 (Phase 7) after Vinicius's second visit: v1.1.0
 works on Dad's laptop, but the scrubber running during the capture alarmed him, and
 "Atualizar Baixador" ended in a Windows box saying powershell.exe cannot be found.
 Now a **curtain** (the frozen frame, dimmed, with the progress in big type) covers the
@@ -383,7 +383,9 @@ powershell.exe" box and Windows 11; nothing more could be checked remotely.
 - [x] Docs: READMEs (curtain paragraph, update section with the fallback line,
       `npm run test:unit`), `docs/*/downloading.png` is now the curtain, this plan.
       Manifest 1.2.0.
-- [ ] Tag `v1.2.0` → Release → check the workflow ran and the zip is there.
+- [x] Tag `v1.2.0` → Release → check the workflow ran and the zip is there. Done
+      2026-09-26: run 36216338876 succeeded (the installer test is skipped on Linux, as
+      designed), the Release carries `karaoke-mp3-downloader.zip` (10.3 MB).
 - [ ] Dad's laptop (Vinicius): the old shortcut there is the one that fails, so this
       once paste the install line into PowerShell (Start → "Windows PowerShell" → paste →
       Enter; close Chrome when it asks). From then on "Atualizar Baixador" runs
