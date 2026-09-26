@@ -1,0 +1,14 @@
+{
+  "extName": { "message": "Baixar MP3 (karaokê)" },
+  "extDescription": { "message": "Um botão no player do YouTube para salvar a música em MP3. Feito para o meu pai, cantor amador de karaokê." },
+  "button": { "message": "⬇ Baixar MP3" },
+  "downloading": { "message": "Baixando… $1%" },
+  "converting": { "message": "Convertendo para MP3…" },
+  "keepTabOpen": { "message": "Não feche esta aba" },
+  "done": { "message": "Pronto! Está em \"Músicas para cantar\"" },
+  "openFolder": { "message": "Abrir pasta" },
+  "error": { "message": "Deu erro ($1, v$2). Recarregue a página (F5) e tente de novo." },
+  "adDetected": { "message": "Apareceu anúncio. Confira se o uBlock Origin Lite está em modo \"Completo\" e tente de novo." },
+  "updateAvailable": { "message": "Tem atualização: clique em \"Atualizar Baixador\" na área de trabalho" },
+  "songsFolder": { "message": "Músicas para cantar" }
+}

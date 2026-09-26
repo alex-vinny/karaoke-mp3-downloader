@@ -1,8 +1,15 @@
-// content_ui.js — isolated world. Draws the Triangle Downloader button + menu in
-// the YouTube player, drives the MAIN-world capture hook over window.postMessage,
-// then streams the captured tracks to the offscreen ffmpeg worker for muxing.
+// content_ui.js — isolated world. Draws the one "Download MP3" button in the
+// YouTube player, drives the MAIN-world capture hook over window.postMessage,
+// then streams the captured audio to the offscreen ffmpeg worker for encoding.
+// Upstream's menu (video, subtitles, format toggle) is kept below as openMenu()
+// but is no longer reachable from the UI.
 (function () {
   const BTN_ID = 'ytdl-btn';
+  const VERSION = chrome.runtime.getManifest().version;
+  // All visible text comes from _locales; Chrome picks the browser's UI language.
+  const t = (key, subs) => chrome.i18n.getMessage(key, subs == null ? undefined : [].concat(subs).map(String)) || key;
+  let busy = false;             // a capture is running: ignore clicks, keep the button disabled
+  let cancelledByAd = false;    // the ad watcher stopped the current capture
   // Clips up to this length get an exact (re-encoded) cut; longer ones are copied
   // instantly and start at the keyframe before the requested point. Re-encoding costs
   // roughly the clip's own length at 1080p, so ~1 minute is a comfortable ceiling.
@@ -77,8 +84,9 @@
     const btn = document.createElement('button');
     btn.id = BTN_ID;
     btn.className = 'ytp-button ytdl-btn';
-    btn.title = 'Triangle Downloader';
-    btn.appendChild(triangleSvg());
+    btn.title = t('extName');
+    btn.textContent = t('button');
+    btn.setAttribute('data-testid', 'karaoke-mp3-download');
     btn.addEventListener('click', onClick);
     return btn;
   }
@@ -89,10 +97,38 @@
   }
   function ensureButton() {
     if (!/\/watch/.test(location.pathname)) return;
-    if (document.getElementById(BTN_ID)) return;
+    watchAds();
+    const existing = document.getElementById(BTN_ID);
+    if (existing) { refreshButtonState(existing); return; }
     const controls = document.querySelector('.ytp-right-controls');
     if (!controls) return;
-    controls.insertBefore(makeButton(), controls.firstChild);
+    const btn = makeButton();
+    controls.insertBefore(btn, controls.firstChild);
+    refreshButtonState(btn);
+  }
+
+  // ---- ads -----------------------------------------------------------------
+  // YouTube marks the player with `ad-showing` while an ad plays. An ad's bytes go
+  // through the same SourceBuffers as the song, so a capture running through one
+  // would come out corrupted: the button is disabled during ads, and an ad that
+  // starts mid-capture cancels it with a clear message.
+  const adPlaying = () => { const p = document.getElementById('movie_player'); return !!(p && p.classList.contains('ad-showing')); };
+  function refreshButtonState(btn) {
+    btn = btn || document.getElementById(BTN_ID);
+    if (btn) btn.disabled = busy || adPlaying();
+  }
+  let adObserverTarget = null;
+  function watchAds() {
+    const p = document.getElementById('movie_player');
+    if (!p || p === adObserverTarget) return;
+    adObserverTarget = p;
+    new MutationObserver(() => {
+      if (busy && adPlaying() && !cancelledByAd) {
+        cancelledByAd = true;
+        callHook('cancel');
+      }
+      refreshButtonState();
+    }).observe(p, { attributes: true, attributeFilter: ['class'] });
   }
 
   let menuEl = null;
@@ -101,7 +137,18 @@
 
   function head(text) { const d = document.createElement('div'); d.className = 'ytdl-menu-head'; d.textContent = text; return d; }
 
+  // One click = the whole track as MP3. No menu.
   async function onClick(e) {
+    e.stopPropagation();
+    if (busy || adPlaying()) return;
+    const info = await callHook('info');
+    const duration = Math.floor(info.duration || 0);
+    if (!duration) { fail('E1', 'duration unknown'); return; }
+    startDownload({ format: 'mp3', height: null, start: 0, end: duration }, info);
+  }
+
+  // Upstream's menu. Kept for reference and for merges; nothing calls it.
+  async function openMenu(e) {
     e.stopPropagation();
     if (menuEl) { closeMenu(); return; }
     const info = await callHook('info');
@@ -141,7 +188,7 @@
     }
 
     // --- video ---
-    menuEl.appendChild(head('Видео'));
+    menuEl.appendChild(head('Video'));
     uniq.forEach((h) => {
       const item = el('div', 'ytdl-menu-item');
       itemLabel(item, h + 'p', 'mp4');
@@ -153,9 +200,9 @@
     });
 
     // --- audio ---
-    menuEl.appendChild(head('Аудио'));
+    menuEl.appendChild(head('Audio'));
     const mp3 = el('div', 'ytdl-menu-item');
-    itemLabel(mp3, 'MP3', 'аудио');
+    itemLabel(mp3, 'MP3', 'audio');
     mp3.addEventListener('click', () => {
       const f = fragment(); closeMenu();
       startDownload({ format: 'mp3', height: null, start: f.start, end: f.end }, info);
@@ -163,17 +210,17 @@
     menuEl.appendChild(mp3);
 
     // --- subtitles (whole video; fragment does not apply) ---
-    menuEl.appendChild(head('Субтитры'));
+    menuEl.appendChild(head('Subtitles'));
     const subs = el('div', 'ytdl-menu-item');
-    itemLabel(subs, '.txt', 'рус / доступный');
+    itemLabel(subs, '.txt', 'ru / available');
     subs.addEventListener('click', () => { closeMenu(); downloadSubtitles(info); });
     menuEl.appendChild(subs);
 
     // --- video format toggle ---
-    menuEl.appendChild(head('Формат видео'));
+    menuEl.appendChild(head('Video format'));
     const formats = [
-      { key: false, title: 'Быстро', sub: 'VP9 в mp4, без перекодирования' },
-      { key: true, title: 'H.264 (совместимо)', sub: 'перекодирование, медленно' },
+      { key: false, title: 'Fast', sub: 'VP9 in mp4, no re-encoding' },
+      { key: true, title: 'H.264 (compatible)', sub: 're-encoding, slow' },
     ];
     let current = !!transcode;
     const rows = [];
@@ -209,16 +256,36 @@
       const bar = el('div', 'ytdl-toast-bar'); bar.appendChild(el('i'));
       box.appendChild(bar);
       box.appendChild(el('span', 'ytdl-toast-txt'));
+      const action = el('button', 'ytdl-toast-btn');
+      action.setAttribute('data-testid', 'karaoke-mp3-open-folder');
+      box.appendChild(action);
       document.body.appendChild(box);
     }
+    const actionBtn = box.querySelector('.ytdl-toast-btn');
     return {
       set(txt, pct) {
         box.querySelector('.ytdl-toast-txt').textContent = txt;
         box.querySelector('.ytdl-toast-bar i').style.width = Math.round((pct || 0) * 100) + '%';
         box.classList.add('show');
       },
-      hide(delay) { setTimeout(() => box.classList.remove('show'), delay || 0); },
+      // one button under the text (e.g. "Open folder"); pass null to remove it
+      action(label, onClick) {
+        actionBtn.textContent = label || '';
+        actionBtn.onclick = onClick || null;
+        box.classList.toggle('has-action', !!label);
+      },
+      hide(delay) { setTimeout(() => { box.classList.remove('show'); box.classList.remove('has-action'); }, delay || 0); },
     };
+  }
+
+  // Short code + version on screen (easy to read out over the phone), full error
+  // in the console. E1 capture, E2 convert/save, E4 an ad interrupted the capture.
+  function fail(code, err) {
+    const tt = toast();
+    tt.action(null);
+    tt.set(code === 'E4' ? t('adDetected') : t('error', [code, VERSION]), 1);
+    tt.hide(10000);
+    console.error('[Karaoke MP3 ' + VERSION + '] ' + code + ':', err);
   }
 
   // Chrome refuses a download whose filename holds characters it deems illegal, and
@@ -242,19 +309,19 @@
 
   async function downloadSubtitles(info) {
     const t = toast();
-    t.set('Открываю расшифровку…', 0.3);
+    t.set('Opening transcript…', 0.3);
     try {
       const res = await callHook('subtitles');
-      if (!res || !res.ok) throw new Error((res && res.error) || 'нет субтитров');
+      if (!res || !res.ok) throw new Error((res && res.error) || 'no subtitles');
       const filename = safeName(info.title) + ' [' + (res.lang || 'txt') + '].txt';
       // small text → a data URL is enough; BOM keeps Cyrillic correct on Windows
       const url = 'data:text/plain;charset=utf-8,' + encodeURIComponent('﻿' + res.text);
       const save = await chrome.runtime.sendMessage({ t: 'ytdl-save', url, filename });
-      if (!save || !save.ok) throw new Error((save && save.error) || 'не удалось сохранить');
-      t.set('Готово: ' + (save.filename || filename), 1);
+      if (!save || !save.ok) throw new Error((save && save.error) || 'could not save');
+      t.set('Done: ' + (save.filename || filename), 1);
       t.hide(4000);
     } catch (err) {
-      t.set('Ошибка: ' + (err.message || err), 1);
+      t.set('Error: ' + (err.message || err), 1);
       t.hide(6000);
       console.error('[Triangle]', err);
     }
@@ -265,25 +332,34 @@
     const duration = Math.floor(info.duration || 0);
     const isMp3 = format === 'mp3';
     const label = isMp3 ? 'MP3' : height + 'p';
-    const t = toast();
-    t.set('Готовлю ' + label + ' — загрузка сегментов…', 0.02);
+    const tt = toast();
+    busy = true; cancelledByAd = false;
+    refreshButtonState();
+    tt.action(null);
+    tt.set(t('downloading', [0]) + ' — ' + t('keepTabOpen'), 0.02);
 
     const { transcode = false } = await chrome.storage.local.get('transcode');
 
     const onProg = (msg) => {
       if (msg && msg.t === 'ytdl-progress') {
-        t.set((isMp3 ? 'Кодирование MP3… ' : 'Точная обрезка (перекодирование)… ') +
-          Math.round(msg.value * 100) + '%', 0.55 + msg.value * 0.45);
+        tt.set(t('converting') + ' ' + Math.round(msg.value * 100) + '% — ' + t('keepTabOpen'), 0.55 + msg.value * 0.45);
       }
     };
     chrome.runtime.onMessage.addListener(onProg);
     try {
-      const result = await download({ height, format, start, end }, (d) => {
-        t.set('Загрузка сегментов ' + label + '… ' + Math.round(d.progress * 100) + '%', d.progress * 0.5);
-      });
+      let result;
+      try {
+        result = await download({ height, format, start, end }, (d) => {
+          tt.set(t('downloading', [Math.round(d.progress * 100)]) + ' — ' + t('keepTabOpen'), d.progress * 0.5);
+        });
+      } catch (err) {
+        throw Object.assign(err, { code: cancelledByAd ? 'E4' : 'E1' });
+      }
 
       const ext = isMp3 ? '.mp3' : '.mp4';
-      const filename = safeName(info.title) + (isMp3 ? '' : ' [' + height + 'p]') +
+      // Sub-folder of Downloads (chrome.downloads accepts a relative path) + the one
+      // shared sanitiser (filename.js); the folder name is localised like everything else.
+      const filename = t('songsFolder') + '/' + safeFilename(info.title) + (isMp3 ? '' : ' [' + height + 'p]') +
         fragSuffix(start, end, duration) + ext;
 
       // Capture starts at a segment boundary at or before `start`, so trimming must be
@@ -306,10 +382,7 @@
       const doTranscode = isMp3 ? true : (!!transcode || exactCut);
       const alignedStart = !isMp3 && needsExactCut && !doTranscode;
 
-      t.set(isMp3 ? 'Кодирование MP3…'
-        : (exactCut ? 'Точная обрезка фрагмента (перекодирование)…'
-          : (transcode ? 'Перекодирование в H.264 (может занять дольше ролика)…'
-            : 'Склейка дорожек…')), 0.55);
+      tt.set(t('converting') + ' — ' + t('keepTabOpen'), 0.55);
 
       // The two captured tracks do NOT begin at the same instant — YouTube's audio
       // segment covering the requested point can start ~10s before the video keyframe.
@@ -331,17 +404,21 @@
         audioMime: result.audio && result.audio.mime,
         filename, transcode: doTranscode, quickEncode: exactCut && !transcode,
         videoSeek, audioSeek, audioDelay, outDuration,
+        title: info.title || '', artist: info.author || '',
       });
 
-      if (!res || !res.ok) throw new Error(res && res.error || 'mux failed');
-      t.set('Готово: ' + (res.filename || filename) +
-        (alignedStart ? ' — начало выровнено по опорному кадру' : ''), 1);
-      t.hide(alignedStart ? 7000 : 4000);
+      if (!res || !res.ok) throw Object.assign(new Error(res && res.error || 'mux failed'), { code: 'E2' });
+      const savedAs = res.filename || filename;
+      const box = document.getElementById('ytdl-toast');
+      if (box) box.setAttribute('data-filename', savedAs); // what the extension asked Chrome to save
+      tt.set(t('done'), 1);
+      if (res.id != null) tt.action(t('openFolder'), () => { chrome.runtime.sendMessage({ t: 'ytdl-show', id: res.id }); });
+      tt.hide(20000);
     } catch (err) {
-      t.set('Ошибка: ' + (err.message || err), 1);
-      t.hide(6000);
-      console.error('[Triangle]', err);
+      fail((err && err.code) || (cancelledByAd ? 'E4' : 'E2'), err);
     } finally {
+      busy = false;
+      refreshButtonState();
       chrome.runtime.onMessage.removeListener(onProg);
     }
   }
@@ -380,20 +457,20 @@
       try {
         const r = await chrome.runtime.sendMessage(msg);
         if (r) return r;                     // includes negative answers — those are real
-        lastErr = new Error('нет ответа от обработчика');
+        lastErr = new Error('no answer from the ffmpeg worker');
       } catch (e) { lastErr = e; }
       if (attempt < retries) {
         try { await chrome.runtime.sendMessage({ t: 'ytdl-ensure' }); } catch (e) {}
         await wait(300);
       }
     }
-    throw lastErr || new Error('обработчик ffmpeg не отвечает');
+    throw lastErr || new Error('the ffmpeg worker is not responding');
   }
 
   async function muxViaOffscreen(job) {
     const CHUNK = 4 * 1024 * 1024;
     await chrome.runtime.sendMessage({ t: 'ytdl-ensure' });
-    if (!await offscreenReady()) throw new Error('обработчик ffmpeg не запустился');
+    if (!await offscreenReady()) throw new Error('the ffmpeg worker did not start');
 
     await sendToOffscreen({
       t: 'ytdl-begin', filename: job.filename, format: job.format,
@@ -401,6 +478,7 @@
       transcode: !!job.transcode, quickEncode: !!job.quickEncode,
       videoSeek: job.videoSeek || 0, audioSeek: job.audioSeek || 0,
       audioDelay: job.audioDelay || 0, outDuration: job.outDuration || 0,
+      title: job.title || '', artist: job.artist || '',
     });
 
     let seq = 0; // lets the receiver drop a repeated chunk instead of doubling the data
@@ -411,7 +489,7 @@
         const slice = view.subarray(off, Math.min(off + CHUNK, view.length));
         const r = await sendToOffscreen({ t: 'ytdl-chunk', track: name, seq, b64: b64encode(slice) });
         if (!r || !r.ok) {
-          throw new Error('передача данных прервалась (' + name + ')' + (r && r.error ? ': ' + r.error : ''));
+          throw new Error('data transfer interrupted (' + name + ')' + (r && r.error ? ': ' + r.error : ''));
         }
         seq++;
       }
@@ -426,4 +504,14 @@
   mo.observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener('yt-navigate-finish', ensureButton);
   ensureButton();
+
+  // ---- update notice -------------------------------------------------------
+  // The background compares the latest GitHub Release with this version once a
+  // day and leaves the answer in storage; show it once per page load, on /watch.
+  chrome.storage.local.get('updateAvailable').then(({ updateAvailable }) => {
+    if (!updateAvailable || !/\/watch/.test(location.pathname)) return;
+    const tt = toast();
+    tt.set(t('updateAvailable'), 0);
+    tt.hide(12000);
+  }).catch(() => {});
 })();

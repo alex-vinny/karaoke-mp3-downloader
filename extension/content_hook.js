@@ -20,6 +20,7 @@
   const store = {
     videoId: null,
     capturing: false,
+    cancel: false,                 // set by the UI (an ad started); the capture loop bails out
     tracks: Object.create(null),   // kind -> { mime, parts: Uint8Array[] }
     // Latest init segment seen per track, kept UNGATED. Init segments usually arrive
     // once at load (audio itag is the same Opus at every quality, so a quality switch
@@ -227,6 +228,7 @@
     seekVia(preSeek);
     await sleep(700);
     resetTracks();
+    store.cancel = false;
     store.capturing = true;
     setQualityRaw(targetQ);
     seekVia(capStart);
@@ -296,7 +298,8 @@
       noteTrackStarts();
       while (true) {
         await sleep(300);
-        if (vidId() !== capId) throw new Error('видео переключилось во время захвата');
+        if (vidId() !== capId) throw new Error('video changed during capture');
+        if (store.cancel) throw new Error('cancelled');
         noteTrackStarts();
 
         const edge = coveredTo(frontier);
@@ -325,7 +328,7 @@
         // a stream can simply end a couple of seconds before its declared duration
         if (stall >= 25 && frontier >= mediaEnd - 3) break;
         if (stall >= 200) break;                          // ~60s without a single new byte
-        if (Date.now() - started > 30 * 60 * 1000) break; // hard cap
+        if (Date.now() - started > 120 * 60 * 1000) break; // hard cap (hour-long karaoke mixes)
       }
       capturedFrom = Math.min(capturedFrom, bufferedStartAt(capStart));
       noteTrackStarts();
@@ -342,8 +345,8 @@
     // to arrive would produce a clip whose picture stops before its sound.
     const complete = frontier >= capEnd - 0.5 || frontier >= mediaEnd - 3;
     if (!complete) {
-      throw new Error('не удалось загрузить фрагмент целиком — получено до '
-        + clock(frontier) + ' из ' + clock(capEnd) + '. Попробуйте ещё раз');
+      throw new Error('could not capture the whole range — got up to '
+        + clock(frontier) + ' of ' + clock(capEnd) + '. Please try again');
     }
     onProgress(1);
     return {
@@ -523,7 +526,7 @@
   }
   async function getSubtitles() {
     const tracks = captionTracks();
-    if (!tracks.length) throw new Error('у этого видео нет субтитров');
+    if (!tracks.length) throw new Error('this video has no subtitles');
     // prefer manual ru, then auto ru; otherwise keep whatever the panel shows
     const ru = tracks.find(t => t.languageCode === 'ru' && t.kind !== 'asr')
             || tracks.find(t => t.languageCode === 'ru');
@@ -534,7 +537,7 @@
     for (let attempt = 0; attempt < 3 && !lines.length; attempt++) {
       if (attempt > 0) { closeTranscript(); await sleep(800); }
       try {
-        if (!(await openTranscriptOnce())) { lastErr = new Error('расшифровка не загрузилась'); continue; }
+        if (!(await openTranscriptOnce())) { lastErr = new Error('transcript did not load'); continue; }
         if (wantName) await selectTranscriptLanguage(wantName); // legacy panel only
         for (let i = 0; i < 20 && !extractTranscriptText().length; i++) await sleep(150);
         lines = extractTranscriptText();
@@ -542,7 +545,7 @@
     }
 
     closeTranscript(); // we're done — leave the player as we found it
-    if (!lines.length) throw new Error((lastErr && lastErr.message) || 'не удалось получить расшифровку');
+    if (!lines.length) throw new Error((lastErr && lastErr.message) || 'could not read the transcript');
 
     // Name the file after the language we actually got. The legacy panel states it;
     // the modern one doesn't, so fall back to the text itself (Cyrillic → ru) and
@@ -569,6 +572,7 @@
         reply({
           ok: true, videoId: vidId(),
           title: (p && p.getVideoData && p.getVideoData().title) || document.title.replace(/ - YouTube$/, ''),
+          author: (p && p.getVideoData && p.getVideoData().author) || '',
           duration: (video() && video().duration) || 0,
           heights: availableHeights(),
         });
@@ -583,7 +587,7 @@
           (pct) => reply({ progress: pct, phase: 'buffering' }));
 
         const aud = assemble('audio');
-        if (!aud) throw new Error('не удалось захватить аудио');
+        if (!aud) throw new Error('could not capture the audio track');
         const payload = {
           ok: true, done: true,
           capturedFrom: cap.capturedFrom,   // where the captured file actually begins
@@ -595,7 +599,7 @@
         payload._a = aud.bytes.buffer;
         if (!isMp3) {
           const vid = assemble('video');
-          if (!vid) throw new Error('не удалось захватить видео');
+          if (!vid) throw new Error('could not capture the video track');
           payload.video = { mime: vid.mime, size: vid.bytes.byteLength };
           payload._v = vid.bytes.buffer;
           transfers.push(vid.bytes.buffer);
@@ -604,6 +608,9 @@
       } else if (cmd === 'subtitles') {
         const res = await getSubtitles();
         reply({ ok: true, done: true, text: res.text, lang: res.lang });
+      } else if (cmd === 'cancel') {
+        store.cancel = true;
+        reply({ ok: true });
       }
     } catch (e) {
       reply({ ok: false, error: String((e && e.message) || e) });

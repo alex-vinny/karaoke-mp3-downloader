@@ -1,11 +1,11 @@
 # karaoke-mp3-downloader
 
-Extensão Chrome de um botão ("⬇ Download MP3" / "⬇ Baixar MP3") para o YouTube,
-fork do Triangle-Downloader, feita para um cantor amador de karaokê sem
-ferramentas de desenvolvimento no laptop. Inglês por padrão; pt-BR automático
-via `_locales`. Repo: `alex-vinny/karaoke-mp3-downloader` (esta pasta local
-manteve o nome antigo).
+One-button Chrome extension ("⬇ Download MP3" / "⬇ Baixar MP3") for the YouTube
+player, forked from Triangle-Downloader, built for an amateur karaoke singer whose
+laptop has no developer tools. English by default; pt-BR is picked automatically
+via `_locales`. GitHub repo: `alex-vinny/karaoke-mp3-downloader` (this local
+folder kept its old name, `baixar-mp3-karaoke`).
 
-- **Plano, decisões e estado das fases:** `specs/PLANO.md` — leia antes de qualquer coisa.
-- **Credenciais (PAT do GitHub):** vault, via `C:\sources\claude-tools\AGENTS.md`. Nunca imprimir.
-- **Escopo:** escreva só dentro desta pasta. Testes rodam localmente (Playwright); CI só publica Release.
+- **Plan, decisions and phase status:** `specs/PLAN.md` — read it before anything else.
+- **Credentials (GitHub PAT):** vault, via `C:\sources\claude-tools\AGENTS.md`. Never print it.
+- **Scope:** write only inside this folder. Tests run locally (Playwright); CI only publishes the Release.

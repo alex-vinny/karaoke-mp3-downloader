@@ -1,14 +1,14 @@
 // offscreen.js — runs ffmpeg.wasm in an extension DOM context (a service worker
-// can't host ffmpeg). Receives the two captured tracks in chunks, transcodes them
-// into a universally-playable H.264/AAC MP4, and hands the result to the background
-// for saving. The captured tracks are whatever the player streamed (typically AV1
-// or VP9 video + Opus audio), so this re-encodes rather than remuxes.
+// can't host ffmpeg). Receives the captured track(s) in chunks, encodes the audio
+// into a tagged MP3 (the video paths from upstream are kept but unreachable from
+// the UI), and hands the result to the background for saving. The captured tracks
+// are whatever the player streamed (typically VP9 video + Opus audio).
 
 const { FFmpeg } = FFmpegWASM;
 
 let ff = null;
 let ffLoading = null;
-const acc = { video: [], audio: [], videoMime: '', audioMime: '', filename: 'video.mp4', seq: 0 };
+const acc = { video: [], audio: [], videoMime: '', audioMime: '', filename: 'audio.mp3', seq: 0, title: '', artist: '' };
 const ffLog = []; // ring buffer of recent ffmpeg log lines for error reporting
 
 async function getFF() {
@@ -50,20 +50,28 @@ function extFor(mime) {
   return 'bin';
 }
 
+// ID3v2.3 tags so car radios and phones show the song's name, not the file name.
+function id3Tags() {
+  const tags = [];
+  if (acc.title) tags.push('-metadata', 'title=' + acc.title);
+  if (acc.artist) tags.push('-metadata', 'artist=' + acc.artist);
+  return tags.length ? [...tags, '-id3v2_version', '3'] : [];
+}
+
 async function finalize() {
   const inst = await getFF();
   const isMp3 = acc.format === 'mp3';
   const aName = 'a.' + extFor(acc.audioMime);
 
   const aBytes = concat(acc.audio);
-  if (!aBytes.length) throw new Error('пустые данные аудио');
+  if (!aBytes.length) throw new Error('empty audio data');
   await inst.writeFile(aName, aBytes);
 
   let vName = null;
   if (!isMp3) {
     vName = 'v.' + extFor(acc.videoMime);
     const vBytes = concat(acc.video);
-    if (!vBytes.length) throw new Error('пустые данные видео');
+    if (!vBytes.length) throw new Error('empty video data');
     await inst.writeFile(vName, vBytes);
   }
 
@@ -98,7 +106,7 @@ async function finalize() {
   if (isMp3) {
     runs.push({
       name: 'mp3', out: 'out.mp3', type: 'audio/mpeg', ext: '.mp3',
-      args: [...inA(true), ...limit, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', 'out.mp3'],
+      args: [...inA(true), ...limit, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', ...id3Tags(), 'out.mp3'],
     });
   } else if (acc.transcode) {
     // Re-encode to H.264 + AAC. An automatic exact cut of a short clip favours speed
@@ -147,10 +155,10 @@ async function finalize() {
         const out = await inst.readFile(run.out);
         // a non-empty result only — a "successful" run can still yield an empty file
         if (out && out.length > 1024) { data = out; chosen = run; break; }
-        failures.push(run.name + ': пустой результат');
-      } catch (e) { failures.push(run.name + ': файл не создан'); }
+        failures.push(run.name + ': empty result');
+      } catch (e) { failures.push(run.name + ': output file missing'); }
     } else {
-      failures.push(run.name + ' (код ' + ret + '): ' + ffLog.slice(-3).join(' | '));
+      failures.push(run.name + ' (code ' + ret + '): ' + ffLog.slice(-3).join(' | '));
     }
     try { await inst.deleteFile(run.out); } catch (e) {}
   }
@@ -161,7 +169,7 @@ async function finalize() {
   if (chosen) { try { await inst.deleteFile(chosen.out); } catch (e) {} }
   acc.video = []; acc.audio = [];
 
-  if (!chosen) throw new Error(lastErr || 'ffmpeg не собрал файл');
+  if (!chosen) throw new Error(lastErr || 'ffmpeg produced no file');
 
   const filename = acc.filename.replace(/\.(mp4|webm|mp3)$/i, '') + chosen.ext;
   const blob = new Blob([data.buffer], { type: chosen.type });
@@ -170,7 +178,7 @@ async function finalize() {
   // keep the blob alive briefly so chrome.downloads can read it, then release
   setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
   return res && res.ok
-    ? { ok: true, filename: res.filename || filename }
+    ? { ok: true, filename: res.filename || filename, id: res.id }
     : { ok: false, error: (res && res.error) || 'save failed' };
 }
 
@@ -186,7 +194,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     acc.video = []; acc.audio = []; acc.seq = 0;
     acc.videoMime = msg.videoMime || '';
     acc.audioMime = msg.audioMime || '';
-    acc.filename = msg.filename || 'video.mp4';
+    acc.filename = msg.filename || 'audio.mp3';
+    acc.title = msg.title || '';
+    acc.artist = msg.artist || '';
     acc.transcode = !!msg.transcode;
     acc.format = msg.format || 'mp4';
     acc.quickEncode = !!msg.quickEncode;
@@ -208,7 +218,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const seq = Number(msg.seq);
       if (Number.isFinite(seq)) {
         if (seq < acc.seq) { sendResponse({ ok: true, duplicate: true }); return; }
-        if (seq > acc.seq) { sendResponse({ ok: false, error: 'пропущен фрагмент данных' }); return; }
+        if (seq > acc.seq) { sendResponse({ ok: false, error: 'missing data chunk' }); return; }
       }
       acc[msg.track].push(b64decode(msg.b64));
       acc.seq++;

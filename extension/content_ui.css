@@ -1,13 +1,17 @@
 /* Download button lives inside the player's right-controls, matching yt style */
 .ytdl-btn {
   position: relative;
-  width: 40px; height: 100%;
+  width: auto; height: 100%;
+  padding: 0 14px;
   vertical-align: top;
-  opacity: .9;
+  opacity: .95;
+  color: #fff;
+  font: 600 15px/1 "YouTube Sans", Roboto, Arial, sans-serif;
+  white-space: nowrap;
+  letter-spacing: .01em;
 }
 .ytdl-btn:hover { opacity: 1; }
-/* center the triangle glyph vertically and horizontally in the control */
-.ytdl-btn svg { width: 46%; height: 100%; display: block; margin: 0 auto; }
+.ytdl-btn[disabled] { opacity: .45; cursor: default; }
 
 /* fragment (start — end) row */
 .ytdl-frag {
@@ -94,14 +98,14 @@
   position: fixed;
   right: 20px; bottom: 20px;
   z-index: 2147483647;
-  width: 320px;
+  width: 340px;
   background: rgba(20,20,20,.96);
   color: #fff;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 12px;
   padding: 14px 16px;
   font-family: "YouTube Sans", Roboto, Arial, sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   box-shadow: 0 10px 30px rgba(0,0,0,.55);
   opacity: 0; transform: translateY(8px);
   transition: opacity .2s, transform .2s;
@@ -119,3 +123,16 @@
   background: #ff4e45;
   transition: width .2s;
 }
+/* "Open folder" action, shown only on success; the toast itself ignores clicks */
+#ytdl-toast .ytdl-toast-btn {
+  display: none;
+  pointer-events: auto;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: 0; border-radius: 8px;
+  background: #ff4e45; color: #fff;
+  font: 600 14px "YouTube Sans", Roboto, Arial, sans-serif;
+  cursor: pointer;
+}
+#ytdl-toast .ytdl-toast-btn:hover { background: #ff6b63; }
+#ytdl-toast.has-action .ytdl-toast-btn { display: inline-block; }
