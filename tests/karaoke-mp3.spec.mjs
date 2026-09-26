@@ -67,14 +67,25 @@ test(`one click saves "${VIDEO_TITLE}" as a tagged MP3 (${LANG})`, async ({}, te
     await expect(toastText).toBeVisible({ timeout: 15_000 });
     await expect(btn).toBeDisabled();
     const seen = [];
+    const toastBox = page.locator('#ytdl-toast');
+    const shots = { downloading: false, converting: false };
     await expect
       .poll(async () => {
         const txt = (await toastText.textContent()) ?? '';
         if (seen[seen.length - 1] !== txt) seen.push(txt);
+        // evidence for the README: the toast while downloading and while converting
+        for (const phase of ['downloading', 'converting']) {
+          if (!shots[phase] && txt.startsWith(msg(phase).split('$1')[0].split('…')[0])) {
+            shots[phase] = true;
+            await toastBox.screenshot({ path: testInfo.outputPath(`02-toast-${phase}.png`) }).catch(() => {});
+          }
+        }
         return txt;
-      }, { message: 'toast reaches done or an error', timeout: 3 * 60_000, intervals: [1000] })
+      }, { message: 'toast reaches done or an error', timeout: 3 * 60_000, intervals: [500] })
       .toMatch(new RegExp('^(' + [msg('done'), msg('adDetected'), msg('error').split(' (')[0]].map(escapeRe).join('|') + ')'));
-    await page.screenshot({ path: testInfo.outputPath('02-toast.png') });
+    await page.waitForTimeout(300);
+    await toastBox.screenshot({ path: testInfo.outputPath('03-toast-done.png') });
+    await page.screenshot({ path: testInfo.outputPath('04-page-done.png') });
     console.log('toast history:', JSON.stringify(seen, null, 2));
     expect(seen[seen.length - 1], 'success toast').toBe(msg('done'));
     expect(seen.some((s) => s.includes(msg('keepTabOpen'))), '"keep tab open" shown while running').toBe(true);

@@ -1,10 +1,9 @@
 # Karaoke MP3 Downloader — Plan
 
-**Status:** Phases 2, 3 and 3½ done (one button, `_locales`, ID3 tags, update
-check, READMEs, release workflow, installer). Next: Phase 4 — test the installer
-with a local zip (needs Vinicius's OK: it writes to his %LOCALAPPDATA%, Downloads
-and desktop), then tag `v1.0.0`. Phase 0's manual check in Vinicius's own Chrome
-is still pending (it only decides §6).
+**Status:** v1.0.0 released (Phase 4 in progress). Remaining in Phase 4: the
+installer's update path against the real Release (needs every Chrome window
+closed), the developer-mode pop-up check on Chrome restart (§6), and cleaning the
+test install off Vinicius's machine. Then Phase 5 (Dad's laptop).
 **Updated:** 2026-09-25.
 
 ## 1. Goal
@@ -33,7 +32,7 @@ without configuring anything.
 | Dev folder | `C:\sources\extensions\baixar-mp3-karaoke` (this one) | |
 | Folder on Dad's laptop | `%LOCALAPPDATA%\KaraokeMP3\extension` | No admin, invisible to him, outside Downloads (cannot be deleted by accident) |
 | Songs folder | `Downloads\<songsFolder>`: "Músicas para cantar" (pt-BR) / "Songs to sing" (en). The extension reads `chrome.i18n.getMessage('songsFolder')`; the installer decides via `Get-UICulture` | Named after its purpose, localised like everything else. Small risk: Windows in one language and Chrome in another → two names; Chrome creates the sub-folder on first download anyway, only the desktop shortcut would point elsewhere |
-| Button | "⬇ Download MP3" / "⬇ Baixar MP3" | One action, no menu |
+| Button | "⬇ Download MP3" / "⬇ Baixar MP3": a big red pill fixed in the top-right corner of the player, outside YouTube's control bar | One action, no menu. In the control bar it was nearly invisible (the bar auto-hides and YouTube's `.ytp-button` fixes a 48px width); Vinicius asked for something his dad cannot miss |
 | Toolbar icon | **None** (upstream has no `action`/popup and we will not add one) | Less diff; the folder opens from the desktop shortcut and from the toast's "Open folder" |
 | Distribution | GitHub Release (zip of `extension/`) + `install.ps1` at the repo root | Fixed URL `releases/latest/download/karaoke-mp3-downloader.zip` |
 | Update notice | `GET https://api.github.com/repos/alex-vinny/karaoke-mp3-downloader/releases/latest` → `tag_name`, once a day in `background.js` via `chrome.alarms` | The Release is what the installer downloads; reading the manifest on `main` would announce a version that cannot be downloaded yet. The API answers with CORS `*`; 60 req/h per IP is plenty |
@@ -130,7 +129,7 @@ was already broken".
       unpacked, download one MP3, close and reopen Chrome. Answers: does the
       "Disable developer mode extensions" pop-up still exist in current Chrome
       (decides §6)? Does upstream work outside Playwright? Vinicius chose to do
-      this later, in parallel with Phase 2.
+      this later, in parallel with Phase 2. 2026-09-25: the modified extension (installed by install.ps1) was loaded in Vinicius's Chrome and downloaded a real karaoke song with correct tags — it works outside Playwright. First finding: inside the control bar the button was nearly invisible, hence the top-right pill. The pop-up question is still open (needs a Chrome restart).
 - [ ] Record what was seen in §6 and §7.
 
 ### Phase 2 — One button (agent, ~1 h)
@@ -264,8 +263,8 @@ Message contract between the pieces (new or changed):
       screenshot/video in `test-results/`.
 - [ ] Follow-up scenarios from §5 (double click, emoji, offline).
 - [x] `node --test` green. 11 unit tests.
-- [ ] Tag `v1.0.0` → Release published (check the workflow ran) → test
-      `install.ps1` in a clean Windows profile on Vinicius's machine.
+- [x] Tag `v1.0.0` → Release published (check the workflow ran) → test
+      `install.ps1` in a clean Windows profile on Vinicius's machine. Tag pushed 2026-09-25; the workflow run succeeded and the Release carries `karaoke-mp3-downloader.zip` (10.3 MB). Installer tested with a local zip (first-install path) on Vinicius's machine: folders, shortcuts, clipboard and chrome://extensions all right. Still to do: the update path against the real Release (Chrome closed), then clean the test install up.
 
 ### Phase 5 — Dad's laptop (Vinicius, 10 min)
 

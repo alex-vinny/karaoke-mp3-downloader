@@ -4,7 +4,11 @@
 
 A fork of [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader), simplified for my dad — an amateur karaoke singer who uses YouTube as his songbook. One button: **Download MP3**.
 
-![The Download MP3 button in the YouTube player](docs/screenshot.png)
+![The Download MP3 button in the top-right corner of the YouTube player](docs/en/button.png)
+
+| While it works | When it is done |
+|---|---|
+| ![Downloading… — Don't close this tab](docs/en/downloading.png) | ![Done! Saved in "Songs to sing" — Open folder](docs/en/done.png) |
 
 ## What it does
 

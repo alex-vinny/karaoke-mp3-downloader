@@ -4,7 +4,11 @@
 
 Fork do [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader), simplificado para o meu pai — cantor amador de karaokê que usa o YouTube como repertório. Um botão só: **Baixar MP3**.
 
-![O botão Baixar MP3 no player do YouTube](docs/screenshot.png)
+![O botão Baixar MP3 no canto superior direito do player do YouTube](docs/pt-BR/button.png)
+
+| Enquanto trabalha | Quando termina |
+|---|---|
+| ![Baixando… — Não feche esta aba](docs/pt-BR/downloading.png) | ![Pronto! Está em "Músicas para cantar" — Abrir pasta](docs/pt-BR/done.png) |
 
 ## O que faz
 
