@@ -1,14 +1,14 @@
 {
-  "extName": { "message": "Karaoke MP3 Downloader" },
-  "extDescription": { "message": "One button in the YouTube player to save the song as MP3. Made for my dad, an amateur karaoke singer." },
-  "button": { "message": "⬇ Download MP3" },
+  "extName": { "message": "Karaoke Downloader" },
+  "extDescription": { "message": "One button in the YouTube player to save the karaoke video. Made for my dad, an amateur karaoke singer." },
+  "button": { "message": "⬇ Download video" },
   "downloading": { "message": "Downloading… $1%" },
-  "converting": { "message": "Converting to MP3…" },
+  "converting": { "message": "Saving the video…" },
   "keepTabOpen": { "message": "Don't close this tab" },
   "done": { "message": "Done! Saved in \"Songs to sing\"" },
   "openFolder": { "message": "Open folder" },
   "error": { "message": "Something went wrong ($1, v$2). Reload the page (F5) and try again." },
   "adDetected": { "message": "An ad started playing. Check that uBlock Origin Lite is set to \"Complete\" and try again." },
-  "updateAvailable": { "message": "Update available: click \"Update Karaoke MP3\" on your desktop" },
+  "updateAvailable": { "message": "Update available: click \"Update Karaoke Downloader\" on your desktop" },
   "songsFolder": { "message": "Songs to sing" }
 }

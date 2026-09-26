@@ -7,7 +7,8 @@
 //     addSourceBuffer(mime), so we classify each by its MIME.
 //   * The player feeds appendBuffer() ARBITRARY byte fragments (16–128 KB), not
 //     whole segments, and the container is often WebM (VP9/AV1 + Opus), sometimes
-//     fragmented MP4. So we do NOT parse boxes. Instead we simply concatenate every
+//     fragmented MP4 — with the codec steering below it is always fragmented MP4
+//     (avc1 + mp4a). So we do NOT parse boxes. Instead we simply concatenate every
 //     byte appended to a track, in order, which reconstructs that track's original
 //     file exactly. This is only valid if fragments arrive in stream order, so we
 //     capture during a monotonic forward play-through (never seeking backward).
@@ -23,7 +24,7 @@
     cancel: false,                 // set by the UI (an ad started); the capture loop bails out
     tracks: Object.create(null),   // kind -> { mime, parts: Uint8Array[] }
     // Latest init segment seen per track, kept UNGATED. Init segments usually arrive
-    // once at load (audio itag is the same Opus at every quality, so a quality switch
+    // once at load (the audio itag is the same at every quality, so a quality switch
     // does NOT re-init audio) — so we remember them and seed a track that starts
     // receiving media mid-capture without a fresh init of its own.
     lastInit: Object.create(null), // kind -> { bytes: Uint8Array, mime: string }
@@ -33,26 +34,31 @@
   function vidId() { try { return new URLSearchParams(location.search).get('v'); } catch (e) { return null; } }
   function resetTracks() { store.tracks = Object.create(null); }
 
-  // ---- steer the player away from AV1 -------------------------------------
-  // The bundled ffmpeg core can decode VP9/Opus but NOT AV1. YouTube only picks
-  // AV1 when the page reports it as decodable, so — before the player probes —
-  // we make AV1 look unsupported. The player then serves VP9, which we can
-  // transcode to H.264. Must run at document_start, before the player loads.
-  const isAv1 = (s) => typeof s === 'string' && /av01|av1\b/i.test(s);
+  // ---- steer the player to H.264 + AAC -------------------------------------
+  // Upstream only hid AV1 (the bundled ffmpeg core cannot decode it) and let the
+  // player serve VP9 + Opus. We go further: AV1, VP9, VP8 and Opus are all reported
+  // as undecodable, so YouTube serves avc1 video + mp4a.40.2 audio in fragmented
+  // MP4 (the h264ify technique; verified 2026-09-26 with tests/spike/codec-steering.mjs:
+  // 720p arrives as itag 136/298, audio as itag 140). Those tracks stream-copy into
+  // an .mp4 that plays everywhere in seconds, instead of a single-thread libx264
+  // re-encode that takes tens of minutes. Side effect: this browser watches YouTube
+  // in H.264, invisible up to 1080p. Must run at document_start, before the player
+  // probes; MediaCapabilities gets the same answer, for video and audio alike.
+  const isBlockedCodec = (s) => typeof s === 'string' && /av01|av1\b|vp09|vp9|vp8|opus/i.test(s);
   try {
     const origITS = MediaSource.isTypeSupported.bind(MediaSource);
-    MediaSource.isTypeSupported = (type) => (isAv1(type) ? false : origITS(type));
+    MediaSource.isTypeSupported = (type) => (isBlockedCodec(type) ? false : origITS(type));
   } catch (e) {}
   try {
     const proto = HTMLMediaElement.prototype;
     const origCPT = proto.canPlayType;
-    proto.canPlayType = function (type) { return isAv1(type) ? '' : origCPT.call(this, type); };
+    proto.canPlayType = function (type) { return isBlockedCodec(type) ? '' : origCPT.call(this, type); };
   } catch (e) {}
   try {
     if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
       const origDI = navigator.mediaCapabilities.decodingInfo.bind(navigator.mediaCapabilities);
       navigator.mediaCapabilities.decodingInfo = (cfg) => {
-        if (cfg && cfg.video && isAv1(cfg.video.contentType)) {
+        if (cfg && ((cfg.video && isBlockedCodec(cfg.video.contentType)) || (cfg.audio && isBlockedCodec(cfg.audio.contentType)))) {
           return Promise.resolve({ supported: false, smooth: false, powerEfficient: false });
         }
         return origDI(cfg);
@@ -219,7 +225,7 @@
     //  1) switch to a low quality and seek to a position clearly DIFFERENT from
     //     capStart, so that seeking to capStart afterwards is a real jump. That jump
     //     forces BOTH tracks to re-fetch — important because the audio itag is the
-    //     same Opus at every quality, so a quality switch alone won't re-init audio.
+    //     same at every quality, so a quality switch alone won't re-init audio.
     //  2) start recording, switch to the target quality, then seek to capStart.
     //     Capture begins at the requested fragment — not at the start of the video.
     const preSeek = capStart > 10 ? 0 : Math.min(35, Math.max(1, dur - 5));

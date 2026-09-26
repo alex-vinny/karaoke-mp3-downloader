@@ -1,14 +1,14 @@
 // offscreen.js — runs ffmpeg.wasm in an extension DOM context (a service worker
-// can't host ffmpeg). Receives the captured track(s) in chunks, encodes the audio
-// into a tagged MP3 (the video paths from upstream are kept but unreachable from
-// the UI), and hands the result to the background for saving. The captured tracks
-// are whatever the player streamed (typically VP9 video + Opus audio).
+// can't host ffmpeg). Receives the captured track(s) in chunks, muxes them into a
+// tagged .mp4 — a stream copy when the player served H.264 + AAC, which the hook
+// makes it do; upstream's libx264 re-encode otherwise — or encodes a tagged MP3
+// (upstream path, kept), and hands the result to the background for saving.
 
 const { FFmpeg } = FFmpegWASM;
 
 let ff = null;
 let ffLoading = null;
-const acc = { video: [], audio: [], videoMime: '', audioMime: '', filename: 'audio.mp3', seq: 0, title: '', artist: '' };
+const acc = { video: [], audio: [], videoMime: '', audioMime: '', filename: 'video.mp4', seq: 0, title: '', artist: '' };
 const ffLog = []; // ring buffer of recent ffmpeg log lines for error reporting
 
 async function getFF() {
@@ -50,12 +50,14 @@ function extFor(mime) {
   return 'bin';
 }
 
-// ID3v2.3 tags so car radios and phones show the song's name, not the file name.
-function id3Tags() {
+// Title/artist tags so players show the song's name, not the file name: ID3v2.3 in
+// the MP3 (car radios, phones), ©nam/©ART atoms in the MP4 (Windows, VLC, phones).
+function metaTags() {
   const tags = [];
   if (acc.title) tags.push('-metadata', 'title=' + acc.title);
   if (acc.artist) tags.push('-metadata', 'artist=' + acc.artist);
-  return tags.length ? [...tags, '-id3v2_version', '3'] : [];
+  if (tags.length && acc.format === 'mp3') tags.push('-id3v2_version', '3');
+  return tags;
 }
 
 async function finalize() {
@@ -106,7 +108,7 @@ async function finalize() {
   if (isMp3) {
     runs.push({
       name: 'mp3', out: 'out.mp3', type: 'audio/mpeg', ext: '.mp3',
-      args: [...inA(true), ...limit, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', ...id3Tags(), 'out.mp3'],
+      args: [...inA(true), ...limit, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', ...metaTags(), 'out.mp3'],
     });
   } else if (acc.transcode) {
     // Re-encode to H.264 + AAC. An automatic exact cut of a short clip favours speed
@@ -117,14 +119,24 @@ async function finalize() {
       name: 'h264', out: 'out.mp4', type: 'video/mp4', ext: '.mp4',
       args: [...inV(true), ...inA(true), '-map', '0:v:0', '-map', '1:a:0', ...limit,
         '-c:v', 'libx264', '-preset', preset, '-crf', '20', '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', 'out.mp4'],
+        '-c:a', 'aac', '-b:a', '160k', ...metaTags(), '-movflags', '+faststart', 'out.mp4'],
     });
   } else {
-    // Fast path: stream-copy the original tracks (VP9/Opus) into mp4 (seconds).
+    // Fast path: stream-copy the tracks into mp4 (seconds). With the hook's codec
+    // steering they are H.264 + AAC already. Should the audio still be Opus, copy the
+    // video and encode only the audio to AAC — about as cheap as the MP3 path — so
+    // the file plays everywhere; the plain copy (Opus in mp4) stays as a fallback.
+    if (!/mp4a|aac/i.test(acc.audioMime)) {
+      runs.push({
+        name: 'mp4-copy-video-aac', out: 'out.mp4', type: 'video/mp4', ext: '.mp4',
+        args: [...inV(true), ...inA(true), '-map', '0:v:0', '-map', '1:a:0', ...limit,
+          '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', ...ZERO, ...metaTags(), '-movflags', '+faststart', 'out.mp4'],
+      });
+    }
     runs.push({
       name: 'mp4-copy', out: 'out.mp4', type: 'video/mp4', ext: '.mp4',
       args: [...inV(true), ...inA(true), '-map', '0:v:0', '-map', '1:a:0', ...limit,
-        '-c', 'copy', '-strict', '-2', ...ZERO, '-movflags', '+faststart', 'out.mp4'],
+        '-c', 'copy', '-strict', '-2', ...ZERO, ...metaTags(), '-movflags', '+faststart', 'out.mp4'],
     });
     if (limit.length) {
       // If trimming upsets the copy path, keep the whole captured range rather than fail
@@ -133,14 +145,14 @@ async function finalize() {
         name: 'mp4-copy-untrimmed', out: 'out.mp4', type: 'video/mp4', ext: '.mp4',
         args: [...inV(true), ...inA(true), '-map', '0:v:0', '-map', '1:a:0',
           '-c', 'copy', '-strict', '-2', '-avoid_negative_ts', 'make_zero',
-          '-movflags', '+faststart', 'out.mp4'],
+          ...metaTags(), '-movflags', '+faststart', 'out.mp4'],
       });
     }
     // Last resort if mp4 refuses these codecs.
     runs.push({
       name: 'webm-copy', out: 'out.webm', type: 'video/webm', ext: '.webm',
       args: [...inV(true), ...inA(true), '-map', '0:v:0', '-map', '1:a:0', ...limit,
-        '-c', 'copy', ...ZERO, 'out.webm'],
+        '-c', 'copy', ...ZERO, ...metaTags(), 'out.webm'],
     });
   }
 
@@ -194,7 +206,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     acc.video = []; acc.audio = []; acc.seq = 0;
     acc.videoMime = msg.videoMime || '';
     acc.audioMime = msg.audioMime || '';
-    acc.filename = msg.filename || 'audio.mp3';
+    acc.filename = msg.filename || 'video.mp4';
     acc.title = msg.title || '';
     acc.artist = msg.artist || '';
     acc.transcode = !!msg.transcode;

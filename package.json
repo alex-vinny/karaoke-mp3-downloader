@@ -2,7 +2,7 @@
   "name": "karaoke-mp3-downloader",
   "version": "1.0.0",
   "private": true,
-  "description": "One button to download MP3 from YouTube. Made for my dad, an amateur karaoke singer.",
+  "description": "One button to save karaoke videos from YouTube. Made for my dad, an amateur karaoke singer.",
   "license": "GPL-3.0",
   "scripts": {
     "test": "npm run test:unit && npm run test:e2e",

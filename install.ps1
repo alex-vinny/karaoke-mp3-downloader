@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-  Karaoke MP3 Downloader - installer and updater for Windows.
+  Karaoke Downloader - installer and updater for Windows.
 
   Run (no admin, nothing outside %LOCALAPPDATA%, Downloads and the desktop):
     irm https://raw.githubusercontent.com/alex-vinny/karaoke-mp3-downloader/main/install.ps1 | iex
@@ -29,7 +29,7 @@ $VersionFile  = Join-Path $Base 'version.txt'
 # ---- strings -------------------------------------------------------------------
 $pt = (Get-UICulture).Name -like 'pt*'
 $S = if ($pt) { @{
-  Title       = 'Baixar MP3 (karaoke) - instalador'
+  Title       = 'Baixar vídeo (karaokê) - instalador'
   SongsFolder = 'Músicas para cantar'
   UpdateLink  = 'Atualizar Baixador'
   Downloading = 'Baixando a última versão...'
@@ -46,7 +46,7 @@ $S = if ($pt) { @{
     '  1. Ligue o "Modo do desenvolvedor" (canto superior direito)',
     '  2. Clique em "Carregar sem compactação"',
     '  3. Cole o caminho (Ctrl+V) e pressione Enter',
-    'Depois abra qualquer vídeo no YouTube: o botão "Baixar MP3" fica no player.',
+    'Depois abra qualquer vídeo no YouTube: o botão vermelho "Baixar vídeo" fica no canto do player.',
     '')
   NoChrome    = 'Não achei o Chrome para abrir. Abra o Chrome, digite chrome://extensions e siga os passos acima.'
   Updated     = 'Atualizado: {0} -> {1}. O Chrome carrega a nova versão quando for aberto de novo.'
@@ -57,9 +57,9 @@ $S = if ($pt) { @{
   Failed      = 'Deu erro: {0}'
   PressEnter  = 'Pressione Enter para fechar'
 } } else { @{
-  Title       = 'Karaoke MP3 Downloader - installer'
+  Title       = 'Karaoke Downloader - installer'
   SongsFolder = 'Songs to sing'
-  UpdateLink  = 'Update Karaoke MP3'
+  UpdateLink  = 'Update Karaoke Downloader'
   Downloading = 'Downloading the latest release...'
   UsingZip    = 'Using local zip: {0}'
   BadZip      = 'The zip has no manifest.json at its root. Aborting.'
@@ -74,7 +74,7 @@ $S = if ($pt) { @{
     '  1. Turn on "Developer mode" (top right)',
     '  2. Click "Load unpacked"',
     '  3. Paste the path (Ctrl+V) and press Enter',
-    'Then open any video on YouTube: the "Download MP3" button is in the player.',
+    'Then open any video on YouTube: the red "Download video" button is in the corner of the player.',
     '')
   NoChrome    = 'Could not find Chrome to open it. Open Chrome, type chrome://extensions and follow the steps above.'
   Updated     = 'Updated: {0} -> {1}. Chrome loads the new version the next time it starts.'
@@ -172,6 +172,9 @@ try {
     -Target "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
     -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"irm $InstallerUrl | iex`"" `
     -Icon '%SystemRoot%\System32\shell32.dll,238'
+  # v1.0.0 named the English shortcut "Update Karaoke MP3"; drop it so there is only one
+  $stale = Join-Path $desktop 'Update Karaoke MP3.lnk'
+  if ($S.UpdateLink -ne 'Update Karaoke MP3' -and (Test-Path $stale)) { Remove-Item -Force $stale }
   Write-Host ($S.Shortcuts -f $S.SongsFolder, $S.UpdateLink)
   Write-Host ($S.Songs -f $Songs)
 

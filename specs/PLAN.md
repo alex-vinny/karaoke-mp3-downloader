@@ -1,19 +1,17 @@
-# Karaoke MP3 Downloader — Plan
+# Karaoke Downloader — Plan
 
-**Status:** Phase 4 done — v1.0.0 released, installer verified on Vinicius's
-machine (first install with a local zip, update path against the real Release),
-the extension downloaded a real karaoke song in his Chrome, no developer-mode
-pop-up on Chrome 153. The test install stays on his machine for maintenance
-(`%LOCALAPPDATA%\KaraokeMP3`, the extension in Chrome, the "Atualizar Baixador"
-shortcut); the test songs folders and MP3 were deleted. **Next: Phase 5 (Dad's
-laptop, Vinicius).** Open follow-ups: §5 follow-up scenarios (double click, emoji,
+**Status:** Phase 6 implemented and tested — the button saves the **video** (720p
+MP4, H.264 + AAC, stream copy) instead of an MP3, because some of Dad's songs are in
+English and need the lyrics on screen. Both Playwright scenarios green in pt-BR and
+en-US on 2026-09-26. **Next: tag `v1.1.0` → Release → Dad's laptop: "Atualizar
+Baixador" (Vinicius).** Open follow-ups: §5 follow-up scenarios (double click, emoji,
 offline) are not automated yet.
 **Updated:** 2026-09-26.
 
 ## 1. Goal
 
-A Chrome extension with **a single button — "⬇ Download MP3" / "⬇ Baixar MP3"** —
-inside the YouTube player, for Vinicius's dad: an amateur karaoke singer who uses
+A Chrome extension with **a single button — "⬇ Download video" / "⬇ Baixar vídeo"**
+(an MP3 until v1.0.0; Phase 6 explains the change) — inside the YouTube player, for Vinicius's dad: an amateur karaoke singer who uses
 YouTube as his songbook and whose laptop has **no developer tools at all**.
 
 A fork of [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader)
@@ -32,11 +30,13 @@ without configuring anything.
 | Minimal diff | Direct click = download; the upstream menu code stays in place but unreachable; strings via `t(key)`; **no rewrite of the hook** (only small additions) | Merging upstream stays viable when YouTube changes the player |
 | Extension ID | Fixed `key` in the manifest → ID `ogenoilmpfaooogllahggcdcejoeeodd` on every machine. Private key in the vault (item `karaoke-mp3-downloader-extension-key`, folder "Git & DevOps"), never in the repo | Needed for the §6 allowlist, the option-3 `.crx`, and stable `chrome://extensions/?id=…` links in the README |
 | Dad's browser | Google Chrome on **Windows 11** | Confirmed 2026-09-25. **uBlock Origin Lite** already installed; it must be in **"Complete"** filtering mode on youtube.com — in the default "Basic" mode ads enter the stream and the capture aborts |
-| Ads | Button disabled while `#movie_player` has the `ad-showing` class; an ad starting mid-capture cancels the capture with a clear message (`adDetected`) | The upstream hook does not detect ads; without this the symptom is a corrupted MP3 or a generic error |
+| Ads | Button disabled while `#movie_player` has the `ad-showing` class; an ad starting mid-capture cancels the capture with a clear message (`adDetected`) | The upstream hook does not detect ads; without this the symptom is a corrupted file or a generic error |
 | Dev folder | `C:\sources\extensions\baixar-mp3-karaoke` (this one) | |
 | Folder on Dad's laptop | `%LOCALAPPDATA%\KaraokeMP3\extension` | No admin, invisible to him, outside Downloads (cannot be deleted by accident) |
 | Songs folder | `Downloads\<songsFolder>`: "Músicas para cantar" (pt-BR) / "Songs to sing" (en). The extension reads `chrome.i18n.getMessage('songsFolder')`; the installer decides via `Get-UICulture` | Named after its purpose, localised like everything else. Small risk: Windows in one language and Chrome in another → two names; Chrome creates the sub-folder on first download anyway, only the desktop shortcut would point elsewhere |
-| Button | "⬇ Download MP3" / "⬇ Baixar MP3": a big red pill fixed in the top-right corner of the player, outside YouTube's control bar | One action, no menu. In the control bar it was nearly invisible (the bar auto-hides and YouTube's `.ytp-button` fixes a 48px width); Vinicius asked for something his dad cannot miss |
+| Button | "⬇ Download video" / "⬇ Baixar vídeo": a big red pill fixed in the top-right corner of the player, outside YouTube's control bar. Was "Download MP3" until v1.0.0 | One action, no menu. Video only since 2026-09-26 (Phase 6): some songs are in English and need the lyrics on screen; Vinicius chose one button over two. In the control bar it was nearly invisible (the bar auto-hides and YouTube's `.ytp-button` fixes a 48px width); Vinicius asked for something his dad cannot miss |
+| Output | 720p `.mp4`, H.264 + AAC, title/artist atoms, saved as `<songsFolder>/<title>.mp4`. The hook tells the page that AV1, VP9, VP8 and Opus are undecodable, so YouTube streams avc1 + mp4a.40.2 and the file is a **stream copy** (seconds). Fallback if a video still is not H.264: upstream's libx264 re-encode (slow, logged) | The videos play on the laptop only, but H.264 + AAC plays on anything and costs nothing: the alternative was a single-thread re-encode of tens of minutes, or a VP9-in-MP4 that old players refuse. 720p reads fine and is half of 1080p. Verified with `tests/spike/codec-steering.mjs` on 2026-09-26. Side effect: that Chrome watches YouTube in H.264 (no 1440p/4K) |
+| Name | Only user-visible names changed with the video: extension "Karaoke Downloader" / "Baixar vídeo (karaokê)", READMEs, English shortcut "Update Karaoke Downloader". Repo `karaoke-mp3-downloader`, zip, `%LOCALAPPDATA%\KaraokeMP3` and the extension ID stay | Vinicius, 2026-09-26: zero risk for the update path already installed on Dad's laptop |
 | Toolbar icon | **None** (upstream has no `action`/popup and we will not add one) | Less diff; the folder opens from the desktop shortcut and from the toast's "Open folder" |
 | Distribution | GitHub Release (zip of `extension/`) + `install.ps1` at the repo root | Fixed URL `releases/latest/download/karaoke-mp3-downloader.zip` |
 | Update notice | `GET https://api.github.com/repos/alex-vinny/karaoke-mp3-downloader/releases/latest` → `tag_name`, once a day in `background.js` via `chrome.alarms` | The Release is what the installer downloads; reading the manifest on `main` would announce a version that cannot be downloaded yet. The API answers with CORS `*`; 60 req/h per IP is plenty |
@@ -270,7 +270,12 @@ Message contract between the pieces (new or changed):
 - [x] Tag `v1.0.0` → Release published (check the workflow ran) → test
       `install.ps1` in a clean Windows profile on Vinicius's machine. Tag pushed 2026-09-25; the workflow run succeeded and the Release carries `karaoke-mp3-downloader.zip` (10.3 MB). Installer tested with a local zip (first-install path) on Vinicius's machine: folders, shortcuts, clipboard and chrome://extensions all right. Still to do: the update path against the real Release (Chrome closed), then clean the test install up. Update path done 2026-09-26 against the real Release: zip fetched from `releases/latest`, the close-Chrome prompt worked, folder swapped, `version.txt` 1.0.0, 18 files identical to the tag (modulo line endings).
 
-### Phase 5 — Dad's laptop (Vinicius, 10 min)
+### Phase 5 — Dad's laptop (Vinicius, 10 min) — done 2026-09-26
+
+Vinicius installed it and tried it with his dad on 2026-09-26. Finding: some of
+the songs he sings are in English, and for those he needs the lyrics on screen —
+the video, not an MP3. That became Phase 6. The individual checks below were not
+reported one by one.
 
 Everything he needs is in [README.pt-BR.md](../README.pt-BR.md). What to expect
 from the installer, seen on Vinicius's machine: it downloads the zip, creates the
@@ -290,8 +295,48 @@ the only manual step is Developer mode → Load unpacked → Ctrl+V → Enter.
 - [ ] Download one song with him watching; show "Open folder" and the shortcut;
       teach the pop-up's "Cancel" (§6), if it still exists.
 - [ ] Leave Windows Quick Assist ready for remote support.
-- [ ] Ask whether he also wants the video with lyrics (would be a version 2; does
-      not change 1.0).
+- [x] Ask whether he also wants the video with lyrics (would be a version 2; does
+      not change 1.0). Answered 2026-09-26: yes, for the English songs — and Vinicius
+      chose video only (Phase 6, v1.1.0).
+
+### Phase 6 — Video instead of MP3 (agent, 2026-09-26)
+
+Vinicius's decisions (asked, not assumed): the videos play on the laptop only; **one
+button, video only** (the MP3 code stays in the unreferenced menu); **720p**; only
+user-visible names change (see §2 "Name").
+
+- [x] Spike `tests/spike/codec-steering.mjs` (no extension; an init script patches
+      the codec probes): reporting AV1/VP9/VP8/Opus as undecodable makes YouTube serve
+      avc1 + mp4a.40.2 in fragmented MP4 (itags 133/136/298 + 140) on the three
+      videos tried, 720p included. So a video download is a stream copy, not a
+      libx264 re-encode. YouTube also asks `mediaCapabilities.decodingInfo`.
+- [x] Hook: upstream's AV1 block became `isBlockedCodec` (AV1, VP9, VP8, Opus) on
+      `isTypeSupported`, `canPlayType` and `decodingInfo` (video and audio). No other
+      change in the hook. (First attempt left one `isAv1` reference behind and the
+      player died with a ReferenceError — the debug script in §5 caught it.)
+- [x] UI: one click → `startDownload({ format: 'mp4', height: 720, plainName: true })`;
+      file `<songsFolder>/<title>.mp4` (no `[720p]` suffix); if the captured video
+      is not H.264 after all, fall back to upstream's re-encode (slow, `console.warn`).
+      Test ids renamed to `karaoke-download` / `karaoke-open-folder`.
+- [x] Offscreen: `metaTags()` writes title/artist into the MP4 too (©nam/©ART); if
+      the audio is not AAC, copy the video and encode only the audio
+      (`mp4-copy-video-aac`), before the plain copy and the webm fallbacks.
+- [x] Tests: `tests/karaoke-video.spec.mjs` — "Me at the zoo" (19 s, 240p) and
+      "Caminandes 3: Llamigos" (`SkVqJ1SGeL0`, 2:30, 720p, CC-BY Blender);
+      `tests/mp4-probe.mjs` reads the `stsd` entries (avc1/mp4a, frame size) without
+      ffprobe; the profile's download history is erased first (`chrome.downloads.erase`)
+      and the extension's worker is picked by URL (YouTube registers its own service
+      worker too). Green in pt-BR and en-US on 2026-09-26: 3.2 s and 8.6 s from click
+      to "Done"; the 720p file is 14 MB, 1280×720, tags "Caminandes 3: Llamigos" / "Blender".
+- [x] Names and docs: `extName`, `extDescription`, `button`, `converting`,
+      `updateAvailable`; installer strings (and it removes the stale "Update Karaoke
+      MP3.lnk" on English desktops); READMEs; AGENTS.md; package.json description;
+      screenshots; this plan. Manifest 1.1.0.
+- [ ] Tag `v1.1.0` → Release → check the workflow ran and the zip is there; update
+      the repo About.
+- [ ] Dad's laptop (Vinicius, 2 min): double-click "Atualizar Baixador" → close Chrome
+      when it asks → open Chrome again → try an English song. The daily check also
+      announces the update on YouTube within a day.
 
 ## 5. Playwright tests
 
@@ -299,10 +344,15 @@ the only manual step is Developer mode → Load unpacked → Ctrl+V → Enter.
 (screenshot/video) that he can read himself.
 
 **Setup** (repo root, dev only — `extension/` stays build-free): `package.json`
-with devDependencies `@playwright/test` and `music-metadata` (validates the MP3),
+with devDependencies `@playwright/test` and `music-metadata` (tags and duration of
+the saved file), `tests/mp4-probe.mjs` (codecs and frame size, no ffprobe),
 `npx playwright install chromium`, `playwright.config.mjs`,
-`tests/karaoke-mp3.spec.mjs`, `tests/unit/*.test.mjs`; `npm test` runs
-`node --test` and then Playwright.
+`tests/karaoke-video.spec.mjs`, `tests/unit/*.test.mjs`; `npm test` runs
+`node --test` and then Playwright. Debugging tip (Phase 6): a throwaway script that
+launches the same persistent context, listens to `page.on('pageerror')` and
+`page.on('console')` and dumps the state of `#movie_player` / `#ytdl-btn` finds a
+hook crash in one run; it must live inside the repo (e.g. `tests/.tmp/`, git-ignored)
+so that `@playwright/test` resolves.
 
 **Loading the extension** (Playwright's official "Chrome extensions" doc):
 
@@ -332,12 +382,15 @@ folders, comma-separated, in the two args.
 1. Open `https://www.youtube.com/watch?v=jNQXAC9IVRw` ("Me at the zoo", 19 s,
    YouTube's official channel — short, stable, no ads). Close the consent dialog
    if it appears.
-2. Wait for the `[data-testid="karaoke-mp3-download"]` button with the text of
+2. Wait for the `[data-testid="karaoke-download"]` button with the text of
    the test project's language.
 3. Click; wait for the "done" toast (3-min timeout).
-4. Check the file: in the language's songs folder, sanitised name, valid MP3
-   with duration 19 s ± 2 s and a `title` tag (`music-metadata`).
+4. Check the file: in the language's songs folder, sanitised name, an `.mp4`
+   with avc1 + mp4a (`mp4-probe`), 320×240, duration 19 s ± 2 s and a `title` tag
+   (`music-metadata`). Until v1.0.0 this was an MP3.
 5. Screenshot + video in `test-results/`.
+6. Same steps on "Caminandes 3: Llamigos" (2:30, 720p): 1280×720, duration
+   150 s ± 10 s, timed (Phase 6).
 
 **Spike result (Phase 0):** the download is triggered by the extension, not the
 page, and Playwright forces `Browser.setDownloadBehavior` = `allowAndName`.
@@ -387,6 +440,10 @@ on managed machines). Options, by effort:
   Mitigation in §5 (reused profile, automation flag hidden).
 - **Windows language ≠ Chrome language** → songs folder with two names (see §2).
   Phase 5 checks Dad's Chrome is in Portuguese.
+- **YouTube stops honouring `isTypeSupported`**, or a video has no H.264 at 720p:
+  the file falls back to a libx264 re-encode — correct but slow (tens of minutes;
+  symptom: "Saving the video…" with a slowly moving percentage). Check with
+  `node tests/spike/codec-steering.mjs`.
 - Closing the tab mid-way aborts.
 - Chrome 137+: no command-line shortcut; always "Load unpacked".
 
@@ -398,28 +455,28 @@ install-free): paste link → MP3. More robust and needs no ad blocker; worse UX
 
 ## 9. Approved copy
 
-- **Repo About (English):** "One button to download MP3 from YouTube. Made for my dad, an amateur karaoke singer."
-- **README.md (top, English):** "A fork of [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader), simplified for my dad — an amateur karaoke singer who uses YouTube as his songbook. One button: **Download MP3**."
-- **README.pt-BR.md (top):** "Fork do [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader), simplificado para o meu pai — cantor amador de karaokê que usa o YouTube como repertório. Um botão só: **Baixar MP3**."
+- **Repo About (English):** "One button to save karaoke videos from YouTube. Made for my dad, an amateur karaoke singer."
+- **README.md (top, English):** "A fork of [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader), simplified for my dad — an amateur karaoke singer who uses YouTube as his songbook. One button: **Download video**."
+- **README.pt-BR.md (top):** "Fork do [Triangle-Downloader](https://github.com/HelpFreedom/Triangle-Downloader), simplificado para o meu pai — cantor amador de karaokê que usa o YouTube como repertório. Um botão só: **Baixar vídeo**."
 - **Extension messages (`_locales`):**
 
 | key | en (default) | pt_BR |
 |---|---|---|
-| `extName` | Karaoke MP3 Downloader | Baixar MP3 (karaokê) |
-| `extDescription` | One button in the YouTube player to save the song as MP3. Made for my dad, an amateur karaoke singer. | Um botão no player do YouTube para salvar a música em MP3. Feito para o meu pai, cantor amador de karaokê. |
-| `button` | ⬇ Download MP3 | ⬇ Baixar MP3 |
+| `extName` | Karaoke Downloader | Baixar vídeo (karaokê) |
+| `extDescription` | One button in the YouTube player to save the karaoke video. Made for my dad, an amateur karaoke singer. | Um botão no player do YouTube para salvar o vídeo do karaokê. Feito para o meu pai, cantor amador de karaokê. |
+| `button` | ⬇ Download video | ⬇ Baixar vídeo |
 | `downloading` | Downloading… $1% | Baixando… $1% |
-| `converting` | Converting to MP3… | Convertendo para MP3… |
+| `converting` | Saving the video… | Salvando o vídeo… |
 | `keepTabOpen` | Don't close this tab | Não feche esta aba |
 | `done` | Done! Saved in "Songs to sing" | Pronto! Está em "Músicas para cantar" |
 | `openFolder` | Open folder | Abrir pasta |
 | `error` | Something went wrong ($1, v$2). Reload the page (F5) and try again. | Deu erro ($1, v$2). Recarregue a página (F5) e tente de novo. |
 | `adDetected` | An ad started playing. Check that uBlock Origin Lite is set to "Complete" and try again. | Apareceu anúncio. Confira se o uBlock Origin Lite está em modo "Completo" e tente de novo. |
-| `updateAvailable` | Update available: click "Update Karaoke MP3" on your desktop | Tem atualização: clique em "Atualizar Baixador" na área de trabalho |
+| `updateAvailable` | Update available: click "Update Karaoke Downloader" on your desktop | Tem atualização: clique em "Atualizar Baixador" na área de trabalho |
 | `songsFolder` | Songs to sing | Músicas para cantar |
 
 - **Installer and shortcuts** (same en / pt-BR rule): folder and shortcut
-  `songsFolder`; update shortcut "Update Karaoke MP3" / "Atualizar Baixador";
+  `songsFolder`; update shortcut "Update Karaoke Downloader" / "Atualizar Baixador";
   the remaining prompts are written in Phase 3½ in the tone of the table.
 
 ## 10. For whoever picks this up (human or agent)
@@ -429,7 +486,7 @@ install-free): paste link → MP3. More robust and needs no ad blocker; worse UX
 - Claude Code's auto mode blocks the vault: it needs `vault unlock` (Vinicius, in
   his terminal) and the rule in `.claude/settings.local.json` (git-ignored, this
   machine only).
-- Order: Phase 1 → 0 → 2 → 3 → 3½ → 4 → tag `v1.0.0` → 5.
+- Order: Phase 1 → 0 → 2 → 3 → 3½ → 4 → tag `v1.0.0` → 5 → 6 → tag `v1.1.0`.
 - Write scope: this folder only. Do not touch Vinicius's Chrome without asking.
 - Upstream files are CRLF on disk (Windows checkout; LF in the repo). Scripts that
   edit them must normalise line endings, or multi-line anchors never match.

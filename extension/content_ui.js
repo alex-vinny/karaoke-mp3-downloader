@@ -1,8 +1,8 @@
-// content_ui.js — isolated world. Draws the one "Download MP3" button in the
+// content_ui.js — isolated world. Draws the one "Download video" button in the
 // YouTube player, drives the MAIN-world capture hook over window.postMessage,
-// then streams the captured audio to the offscreen ffmpeg worker for encoding.
-// Upstream's menu (video, subtitles, format toggle) is kept below as openMenu()
-// but is no longer reachable from the UI.
+// then streams the captured tracks to the offscreen ffmpeg worker for muxing.
+// Upstream's menu (quality, MP3, subtitles, format toggle) is kept below as
+// openMenu() but is no longer reachable from the UI; the MP3 path still works.
 (function () {
   const BTN_ID = 'ytdl-btn';
   const VERSION = chrome.runtime.getManifest().version;
@@ -86,7 +86,7 @@
     btn.className = 'ytdl-btn';
     btn.title = t('extName');
     btn.textContent = t('button');
-    btn.setAttribute('data-testid', 'karaoke-mp3-download');
+    btn.setAttribute('data-testid', 'karaoke-download');
     btn.addEventListener('click', onClick);
     // a double click on the player toggles fullscreen; keep ours to ourselves
     btn.addEventListener('dblclick', (e) => e.stopPropagation());
@@ -140,14 +140,16 @@
 
   function head(text) { const d = document.createElement('div'); d.className = 'ytdl-menu-head'; d.textContent = text; return d; }
 
-  // One click = the whole track as MP3. No menu.
+  // One click = the whole video as a 720p .mp4. No menu. 720p is enough to read the
+  // lyrics and half the size of 1080p. The hook makes the player serve H.264 + AAC,
+  // so the offscreen side stream-copies the tracks instead of re-encoding them.
   async function onClick(e) {
     e.stopPropagation();
     if (busy || adPlaying()) return;
     const info = await callHook('info');
     const duration = Math.floor(info.duration || 0);
     if (!duration) { fail('E1', 'duration unknown'); return; }
-    startDownload({ format: 'mp3', height: null, start: 0, end: duration }, info);
+    startDownload({ format: 'mp4', height: 720, start: 0, end: duration, plainName: true }, info);
   }
 
   // Upstream's menu. Kept for reference and for merges; nothing calls it.
@@ -260,7 +262,7 @@
       box.appendChild(bar);
       box.appendChild(el('span', 'ytdl-toast-txt'));
       const action = el('button', 'ytdl-toast-btn');
-      action.setAttribute('data-testid', 'karaoke-mp3-open-folder');
+      action.setAttribute('data-testid', 'karaoke-open-folder');
       box.appendChild(action);
       document.body.appendChild(box);
     }
@@ -288,7 +290,7 @@
     tt.action(null);
     tt.set(code === 'E4' ? t('adDetected') : t('error', [code, VERSION]), 1);
     tt.hide(10000);
-    console.error('[Karaoke MP3 ' + VERSION + '] ' + code + ':', err);
+    console.error('[Karaoke downloader ' + VERSION + '] ' + code + ':', err);
   }
 
   // Chrome refuses a download whose filename holds characters it deems illegal, and
@@ -331,7 +333,7 @@
   }
 
   async function startDownload(opts, info) {
-    const { format, height, start, end } = opts;
+    const { format, height, start, end, plainName } = opts;
     const duration = Math.floor(info.duration || 0);
     const isMp3 = format === 'mp3';
     const label = isMp3 ? 'MP3' : height + 'p';
@@ -362,7 +364,7 @@
       const ext = isMp3 ? '.mp3' : '.mp4';
       // Sub-folder of Downloads (chrome.downloads accepts a relative path) + the one
       // shared sanitiser (filename.js); the folder name is localised like everything else.
-      const filename = t('songsFolder') + '/' + safeFilename(info.title) + (isMp3 ? '' : ' [' + height + 'p]') +
+      const filename = t('songsFolder') + '/' + safeFilename(info.title) + (isMp3 || plainName ? '' : ' [' + height + 'p]') +
         fragSuffix(start, end, duration) + ext;
 
       // Capture starts at a segment boundary at or before `start`, so trimming must be
@@ -382,7 +384,13 @@
       const needsExactCut = isFragment && trimStart > 0.3;
       const shortEnough = trimDuration > 0 && trimDuration <= EXACT_CUT_MAX_SEC;
       const exactCut = !isMp3 && needsExactCut && shortEnough;
-      const doTranscode = isMp3 ? true : (!!transcode || exactCut);
+      // The hook steers YouTube to H.264. Should a video still arrive in another codec,
+      // fall back to upstream's libx264 re-encode so the file plays everywhere — slow
+      // (tens of minutes), but it should be rare and the toast shows the progress.
+      const videoMime = (result.video && result.video.mime) || '';
+      const h264 = /avc1|avc3/i.test(videoMime);
+      if (!isMp3 && !h264) console.warn('[Karaoke downloader ' + VERSION + '] video is not H.264 (' + videoMime + '), re-encoding');
+      const doTranscode = isMp3 ? true : (!!transcode || exactCut || !h264);
       const alignedStart = !isMp3 && needsExactCut && !doTranscode;
 
       tt.set(t('converting') + ' — ' + t('keepTabOpen'), 0.55);
