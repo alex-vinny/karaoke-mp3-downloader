@@ -1,0 +1,48 @@
+# Publishes a GitHub Release with the extension zipped when a v* tag is pushed.
+# The installer downloads releases/latest/download/karaoke-mp3-downloader.zip,
+# so the zip has manifest.json at its root (the CONTENTS of extension/).
+# End-to-end tests are not run here: YouTube blocks datacenter IPs.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tag must match the manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(node -p "require('./extension/manifest.json').version")"
+          echo "tag=$TAG manifest=$VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::tag v$TAG does not match extension/manifest.json version $VERSION"
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: node --test "tests/unit/**/*.test.mjs"
+
+      - name: Zip the extension (manifest.json at the zip root)
+        run: |
+          cd extension
+          zip -r -X ../karaoke-mp3-downloader.zip .
+          cd ..
+          unzip -l karaoke-mp3-downloader.zip | grep -q ' manifest.json$'
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: karaoke-mp3-downloader.zip
+          generate_release_notes: true

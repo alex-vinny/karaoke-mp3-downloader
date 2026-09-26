@@ -1,8 +1,10 @@
 # Karaoke MP3 Downloader — Plan
 
-**Status:** Phases 2 and 3 done (one button, `_locales`, ID3 tags, update check,
-READMEs). Next: Phase 3½ (release workflow + installer). Phase 0's manual check in
-Vinicius's own Chrome is still pending (it only decides §6).
+**Status:** Phases 2, 3 and 3½ done (one button, `_locales`, ID3 tags, update
+check, READMEs, release workflow, installer). Next: Phase 4 — test the installer
+with a local zip (needs Vinicius's OK: it writes to his %LOCALAPPDATA%, Downloads
+and desktop), then tag `v1.0.0`. Phase 0's manual check in Vinicius's own Chrome
+is still pending (it only decides §6).
 **Updated:** 2026-09-25.
 
 ## 1. Goal
@@ -221,15 +223,15 @@ Message contract between the pieces (new or changed):
 
 ### Phase 3½ — Distribution (agent, 40 min)
 
-- [ ] **Zip contract:** `karaoke-mp3-downloader.zip` has `manifest.json` at its
+- [x] **Zip contract:** `karaoke-mp3-downloader.zip` has `manifest.json` at its Done in release.yml (zips the contents of `extension/`, checks `manifest.json` at the root) and in install.ps1 (refuses a zip without it).
       root (zip the *contents* of `extension/`, not the folder). `install.ps1`
       extracts straight into `extension/`.
-- [ ] `.github/workflows/release.yml`, on push of a `v*` tag: (1) fail if the
+- [x] `.github/workflows/release.yml`, on push of a `v*` tag: (1) fail if the Written; first live run on the `v1.0.0` tag (Phase 4).
       manifest `version` ≠ tag without `v`; (2) `node --test`; (3) zip; (4)
       Release with `softprops/action-gh-release` (`permissions: contents: write`,
       the Actions `GITHUB_TOKEN` — the PAT is not involved). Depends on Actions
       being enabled (Phase 1).
-- [ ] `install.ps1` at the root. Requirements: stock PowerShell 5.1, **no
+- [x] `install.ps1` at the root. Requirements: stock PowerShell 5.1, **no Written, UTF-8 BOM, parses clean; live test in Phase 4.
       admin**, independent of ExecutionPolicy (runs via `irm <url> | iex`, in
       memory), **UTF-8 with BOM** (5.1 misreads accents without it), idempotent
       (running again = update), never deletes the songs folder. Strings in
@@ -253,15 +255,15 @@ Message contract between the pieces (new or changed):
      once** — it cannot be automated without §6 option 3.
   6. Update: at the end, "Open Chrome now? [Y/N]" (an unpacked extension is
      re-read from disk on start).
-- [ ] `-Zip <path>` parameter to test the installer with a local zip before a
+- [x] `-Zip <path>` parameter to test the installer with a local zip before a Implemented; a test zip is built with `Compress-Archive extension\* -DestinationPath karaoke-mp3-downloader.zip`.
       Release exists.
 
 ### Phase 4 — Automated tests (agent, see §5)
 
-- [ ] Main scenario green on the modified extension, in both languages, with
+- [x] Main scenario green on the modified extension, in both languages, with `tests/karaoke-mp3.spec.mjs`, pt-BR and en-US, 2026-09-25.
       screenshot/video in `test-results/`.
 - [ ] Follow-up scenarios from §5 (double click, emoji, offline).
-- [ ] `node --test` green.
+- [x] `node --test` green. 11 unit tests.
 - [ ] Tag `v1.0.0` → Release published (check the workflow ran) → test
       `install.ps1` in a clean Windows profile on Vinicius's machine.
 
